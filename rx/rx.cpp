@@ -4,83 +4,62 @@
 #include <cstdlib>
 #include "ThreadSafeQueue.hpp"
 
-/*
-const signed short SIN[8] = {0, 11585, -16384, 11585, 0, -11585, 16384, -11585};
+// oscillator
+const signed short SIN[8] = {0, -11585, 16384, -11585, 0, 11585, -16384, 11585}; // -sin
 const signed short COS[8] = {16384, -11585, 0, 11585, -16384, 11585, 0, -11585};
 const int KOSC = 14;
 
-const signed short MSEQ[] = {0, -1, -1, -1, -1, 0, -1, 0, -1, 0, 0, 0, -1, 0, 0, -1, -1, -1, 0, 0, 0, 0, 0, -1, -1, 0, 0, -1, 0, -1, -1};
+// an extra 0 added in the front
+const signed char MSEQ[] = {0,1,0,0,0,0,0,0,0,1,0,1,1,1,0,0,0,1,1,1,0,1,1,1,1,0,0,0,1,0,1,1,0,0,1,1,0,1,1,0,0,0,0,1,1,1,1,0,0,1,1,1,0,0,0,0,1,0,1,0,1,1,1,1,1,1,1,1,0,0,1,0,1,1,1,1,0,1,0,0,1,0,1,0,0,0,0,1,1,0,1,1,1,0,1,1,0,1,1,1,1,1,0,1,0,1,1,1,0,1,0,0,0,0,0,1,1,0,0,1,0,1,0,1,0,1,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,0,0,0,0,1,0,0,1,0,1,1,0,1,1,0,1,0,1,0,0,1,1,0,1,0,0,1,1,1,1,1,1,0,1,1,1,0,0,1,1,0,0,1,1,1,1,0,1,1,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,1,1,0,0,1,0,0,1,0,0,1,1,0,0,0,1,0,0,1,1,1,0,1,0,1,0,1,1,0,1,0,0,0,1,0,0,0,1,0,1,0,0,1,0,0,0,1,1,1,1,1};
 
-#define ORDER 4
-
-const int B[ORDER+1] = {5416, 21664, 32496, 21664, 5416};
+// lpf
+const int B[] = {5416, 21664, 32496, 21664, 5416};
 const int KB = 26;
-
-const int A[ORDER+1] ={4096, -14226, 18652, -10931, 2415};
+const int A[] ={4096, -14226, 18652, -10931, 2415};
 const int KA = 12;
 
-#define N_SAMPLES_PER_CHIP 128
-#define N_CHIPS_PER_BIT 31
-
+#define N_SAMPLES_PER_CHIP 64
+#define N_CHIPS_PER_BIT (sizeof(MSEQ)/sizeof(MSEQ[0]))
+#define ORDER (sizeof(B)/sizeof(B[0])-1)
 #define N_ACC 16
-
-#define DECISION_THRESH 65536
-*/
-
-const float SIN[8] = {0,0.7071,-1.0000,0.7071,0,-0.7071,1.0000,-0.7071};
-const float COS[8] = {1.0000,-0.7071,0,0.7071,-1.0000,0.7071,0,-0.7071};
-
-const float MSEQ[] = {1, -1, -1, -1, -1, 1, -1, 1, -1, 1, 1, 1, -1, 1, 1, -1, -1, -1, 1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, -1};
-
-#define ORDER 4
-
-const float B[ORDER+1] = {8.07046890258789e-05,0.000322818756103516,0.000484228134155273,0.000322818756103516,8.07046890258789e-05};
-const float A[ORDER+1] ={1.0000,-3.4731,4.5537,-2.6687,0.5896};
-
-#define N_SAMPLES_PER_CHIP 128
-#define N_CHIPS_PER_BIT 31
-
-#define N_ACC 16
-
-#define DECISION_THRESH 65536
-
+#define DECISION_THRESH 160000
 
 int callback( void* /* outputBuffer */, void* inputBuffer, unsigned int nBufferFrames,
          double /* streamTime */, RtAudioStreamStatus status, void* userData )
 {
-  static float z[ORDER] = {0};
+  static int z[ORDER] = {0};
 
-  if (status) std::cout << "Overflow!" << std::endl;
+  if (status) std::cerr << "Overflow!" << std::endl;
 
-  ThreadSafeQueue<float>* pq = (ThreadSafeQueue<float>*)userData;
-  float* buffer = (float*) inputBuffer;
-  float x0, x1, x2;
+  ThreadSafeQueue<int>* pq = (ThreadSafeQueue<int>*)userData;
+  signed short* buffer = (signed short*) inputBuffer;
+  int x0, x1, x2;
 
   for (int i=0; i<nBufferFrames; i++) {
     x0 = buffer[i];
 
     // mix - I
-    x1 = x0*COS[i & 0x7];
+    x1 = (x0*COS[i & 0x7])>>KOSC;
 
     // iir lpf - I
-    x2 = z[0] + (x1*B[0]);
+    x2 = z[0] + ((x1*B[0])>>KB);
     for (int n=1; n<ORDER; n++) {
-      z[n-1] = z[n] + (x1*B[n]) - (x2*A[n]);
+      z[n-1] = z[n] + ((x1*B[n])>>KB) - ((x2*A[n])>>KA);
     }
-    z[ORDER-1] = (x1*B[ORDER]) - (x2*A[ORDER]);
+    z[ORDER-1] = ((x1*B[ORDER])>>KB) - ((x2*A[ORDER])>>KA);
 
     // store - I
     pq->push(x2);
 
     // mix - Q
-    x1 = x0*SIN[(i ^ 0x4) & 0x7]; // -sin
+    x1 = (x0*SIN[i & 0x7])>>KOSC; // -sin
 
     // iir lpf - Q
-    x2 = z[0] + (x1*B[0]);
+    x2 = z[0] + ((x1*B[0])>>KB);
     for (int n=1; n<ORDER; n++) {
-      z[n-1] = z[n] + (x1*B[n]) - (x2*A[n]);
+      z[n-1] = z[n] + ((x1*B[n])>>KB) - ((x2*A[n])>>KA);
     }
-    z[ORDER-1] = (x1*B[ORDER]) - (x2*A[ORDER]);
+    z[ORDER-1] = ((x1*B[ORDER])>>KB) - ((x2*A[ORDER])>>KA);
 
     // store - Q
     pq->push(x2);
@@ -100,7 +79,7 @@ int main()
 {
   RtAudio adc;
   if ( adc.getDeviceCount() < 1 ) {
-    std::cout << "\nNo audio devices found!\n";
+    std::cerr << "\nNo audio devices found!\n";
     exit( 0 );
   }
   RtAudio::StreamParameters parameters;
@@ -113,7 +92,7 @@ int main()
   ThreadSafeQueue<int> q;
 
   try {
-    adc.openStream( NULL, &parameters, RTAUDIO_FLOAT32,
+    adc.openStream( NULL, &parameters, RTAUDIO_SINT16 /*RTAUDIO_FLOAT32*/,
                     sampleRate, &bufferFrames, &callback, (void *)&q);
     adc.startStream();
   }
@@ -121,10 +100,12 @@ int main()
     e.printMessage();
     exit( 0 );
   }
-  
-  float i0, q0, x0, y0;
-  float y[N_CHIPS_PER_BIT*N_SAMPLES_PER_CHIP/N_ACC] = {0};
-  float p[3];
+
+  std::cerr << "Listening..." << std::endl;
+
+  int i0, q0, x0, y0;
+  int y[N_CHIPS_PER_BIT*N_SAMPLES_PER_CHIP/N_ACC] = {0};
+  int p[3];
   int d;
   char c;
   int bitIdx = 0;
@@ -136,13 +117,13 @@ int main()
       while (q.empty());
       q0 = q.pop();
 
-      x0 = sqrt(i0*i0 + q0*q0);
+      x0 = sqrt(i0*i0+q0*q0);
 
-      y0 += x0;
+      y0 += x0/N_ACC;
     }
 
-    std::cout << y0 << std::endl;
-    continue;
+    // std::cout << y0 << std::endl;
+    // continue;
 
     for (int i=0; i<N_CHIPS_PER_BIT*N_SAMPLES_PER_CHIP/N_ACC-1; i++) {
       y[i] = y[i+1];
@@ -153,7 +134,7 @@ int main()
     p[1] = p[2];
     p[2] = 0;
     for (int i=0; i<N_CHIPS_PER_BIT*N_SAMPLES_PER_CHIP/N_ACC; i++) {
-      p[2] += y[i] * MSEQ[i >> 3];
+      p[2] += MSEQ[i/(N_SAMPLES_PER_CHIP/N_ACC)] ? y[i] : -y[i];
     }
 
     std::cout << p[2] << std::endl;
@@ -173,7 +154,9 @@ int main()
 
     if (d) {
       std::cout << "Got bit " << ((d & 0x80000000)>>31) << std::endl;
-      std::cout << c;
+      if (bitIdx==0) {
+        std::cout << c;
+      }
     }
   }
 

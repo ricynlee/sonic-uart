@@ -13,5 +13,5 @@ rx.o: rx.cpp ../RtAudio.h ../ThreadSafeQueue.hpp
 	$(CXX) $< -c -std=c++11 -o $@ -I../
 
 clean:
-	del *.o *.exe 2>nul
+	-rm *.o *.exe
 .phony: clean
