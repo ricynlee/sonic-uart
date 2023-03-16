@@ -1,11 +1,20 @@
+#pragma once
+
 #include <cstdint>
 
 // parameter that can be overriden in makefile
-#define SAMPLES_PER_CHIP 64 // for frequency spreading, 64~512
+#define SAMPLES_PER_CHIP 128 // for frequency spreading, 64~512
 #define DECISION_THRESH (6400000/SAMPLES_PER_CHIP)
 
-// sampling rate
+// typedefs
+typedef struct {
+    int16_t left;
+    int16_t right;
+} sample_t;
+
+// sampling
 static const int SAMPLE_RATE = 48000;
+static const int CHANNELS = 2;
 
 // oscillator for frequency mixing
 static const int16_t MOD_OSC[8] = {0, 11585, -16384, 11585, 0, -11585, 16384, -11585}; // sin
@@ -29,33 +38,11 @@ static const int DEM_FILTER_ORDER = sizeof(DEM_B)/sizeof(DEM_B[0])-1;
 
 // balanced (0-prefixed) maximum-length sequence for frequency spreading/despreading
 static const int8_t MSEQ[] = {
-    0,1,0,0,0,0,0,0,0,1,0,1,1,1,0,0,
-    0,1,1,1,0,1,1,1,1,0,0,0,1,0,1,1,
-    0,0,1,1,0,1,1,0,0,0,0,1,1,1,1,0,
-    0,1,1,1,0,0,0,0,1,0,1,0,1,1,1,1,
-    1,1,1,1,0,0,1,0,1,1,1,1,0,1,0,0,
-    1,0,1,0,0,0,0,1,1,0,1,1,1,0,1,1,
-    0,1,1,1,1,1,0,1,0,1,1,1,0,1,0,0,
-    0,0,0,1,1,0,0,1,0,1,0,1,0,1,0,0,
-    0,1,1,0,1,0,1,1,0,0,0,1,1,0,0,0,
-    0,0,1,0,0,1,0,1,1,0,1,1,0,1,0,1,
-    0,0,1,1,0,1,0,0,1,1,1,1,1,1,0,1,
-    1,1,0,0,1,1,0,0,1,1,1,1,0,1,1,0,
-    0,1,0,0,0,0,1,0,0,0,0,0,0,1,1,1,
-    0,0,1,0,0,1,0,0,1,1,0,0,0,1,0,0,
-    1,1,1,0,1,0,1,0,1,1,0,1,0,0,0,1,
-    0,0,0,1,0,1,0,0,1,0,0,0,1,1,1,1
+    1,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,1,0,0,1,1,1,1,0,1,0,0,0,1,1,1,0,0,1,0,0,1,0,1,1,0,1,1,1,0,1,1,0,0,1,1,0,1,0,1,0,1,1,1,1,1,1
 };
 static const int CHIPS = sizeof(MSEQ)/sizeof(MSEQ[0]);
 static const int SAMPLES_PER_BIT = 1024;
 
 // accumulation parameters
-static const int ASYNC_ACCUM = SAMPLES_PER_CHIP/8;
+static const int ASYNC_ACCUM = SAMPLES_PER_CHIP/16;
 static const int SYNC_ACCUM = SAMPLES_PER_CHIP;
-
-// others
-static const int CHANNELS = 2;
-typedef struct {
-    int16_t left;
-    int16_t right;
-} sample_t;
