@@ -1,27 +1,12 @@
 #include "RtAudio.h"
 #include <iostream>
 #include "ThreadSafeQueue.hpp"
+#include "dsp.hpp"
 
-// oscillator
-const signed short OSC[8] = {0, 11585, -16384, 11585, 0, -11585, 16384, -11585};
+using namespace std;
 
-// an extra 0 added in the front
-const signed char MSEQ[] = {0,1,0,0,0,0,0,0,0,1,0,1,1,1,0,0,0,1,1,1,0,1,1,1,1,0,0,0,1,0,1,1,0,0,1,1,0,1,1,0,0,0,0,1,1,1,1,0,0,1,1,1,0,0,0,0,1,0,1,0,1,1,1,1,1,1,1,1,0,0,1,0,1,1,1,1,0,1,0,0,1,0,1,0,0,0,0,1,1,0,1,1,1,0,1,1,0,1,1,1,1,1,0,1,0,1,1,1,0,1,0,0,0,0,0,1,1,0,0,1,0,1,0,1,0,1,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,0,0,0,0,1,0,0,1,0,1,1,0,1,1,0,1,0,1,0,0,1,1,0,1,0,0,1,1,1,1,1,1,0,1,1,1,0,0,1,1,0,0,1,1,1,1,0,1,1,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,1,1,0,0,1,0,0,1,0,0,1,1,0,0,0,1,0,0,1,1,1,0,1,0,1,0,1,1,0,1,0,0,0,1,0,0,0,1,0,1,0,0,1,0,0,0,1,1,1,1,1};
-
-// band-pass filter
-const int B[] = {7408,0,-22223,0,22223,0,-7408};
-const int KB = 22;
-const int A[] ={2048,8000,15526,17884,13026,5629,1210};
-const int KA = 11;
-
-#define N_SAMPLES_PER_CHIP 64
-#define N_CHIPS_PER_BIT (sizeof(MSEQ)/sizeof(MSEQ[0]))
-#define ORDER (sizeof(B)/sizeof(B[0])-1)
-
-int callback( void* outputBuffer, void * /* inputBuffer */, unsigned int nBufferFrames,
-         double /* streamTime */, RtAudioStreamStatus status, void *userData )
-{
-  static unsigned int nTxFrameRemainder = N_SAMPLES_PER_CHIP*N_CHIPS_PER_BIT;
+int callback( void* out_buf, void* /* in_buf */, unsigned samples, double /* timestamp */, RtAudioStreamStatus status, void* shared_data) {
+  static unsigned int nTxFrameRemainder = SAMPLES_PER_CHIP*CHIPS_PER_BIT;
   static int z[ORDER] = {0};
 
   if (status) std::cout << "Underflow!" << std::endl;

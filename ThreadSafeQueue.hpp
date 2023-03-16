@@ -26,7 +26,7 @@ template <class T, class Container=std::queue<T>>
 class ThreadSafeQueue {
 public:
 
-  ThreadSafeQueue() =default;
+  ThreadSafeQueue() = default;
 
   // push - supports move, copies only if needed. e.g. q.push(move(obj));
   void push(T t){
@@ -60,8 +60,6 @@ public:
     }
   }
 
-  size_t size() const { return q.size(); }
-  bool  empty() const { return q.empty(); }
   void  clear() {
     std::lock_guard<std::mutex> lock(m);
     q = Container();
@@ -71,6 +69,8 @@ private:
   Container q;
   mutable std::mutex m;
   std::condition_variable c;
+
+  bool  empty() const { return q.empty(); }
 
   static T& next(std::stack<T>& s) { return s.top();   }
   static T& next(std::queue<T>& q) { return q.front(); }

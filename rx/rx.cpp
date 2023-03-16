@@ -1,38 +1,21 @@
 #include "RtAudio.h"
 #include <iostream>
+#include <cstdint>
 #include <cmath>
 #include <cstdlib>
 #include "ThreadSafeQueue.hpp"
 
+using namespace std;
+
 // oscillator
-const signed short SIN[8] = {0, -11585, 16384, -11585, 0, 11585, -16384, 11585}; // -sin
-const signed short COS[8] = {16384, -11585, 0, 11585, -16384, 11585, 0, -11585};
-const int KOSC = 14;
 
 // an extra 0 added in the front
-const signed char MSEQ[] = {0,1,0,0,0,0,0,0,0,1,0,1,1,1,0,0,0,1,1,1,0,1,1,1,1,0,0,0,1,0,1,1,0,0,1,1,0,1,1,0,0,0,0,1,1,1,1,0,0,1,1,1,0,0,0,0,1,0,1,0,1,1,1,1,1,1,1,1,0,0,1,0,1,1,1,1,0,1,0,0,1,0,1,0,0,0,0,1,1,0,1,1,1,0,1,1,0,1,1,1,1,1,0,1,0,1,1,1,0,1,0,0,0,0,0,1,1,0,0,1,0,1,0,1,0,1,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,0,0,0,0,1,0,0,1,0,1,1,0,1,1,0,1,0,1,0,0,1,1,0,1,0,0,1,1,1,1,1,1,0,1,1,1,0,0,1,1,0,0,1,1,1,1,0,1,1,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,1,1,0,0,1,0,0,1,0,0,1,1,0,0,0,1,0,0,1,1,1,0,1,0,1,0,1,1,0,1,0,0,0,1,0,0,0,1,0,1,0,0,1,0,0,0,1,1,1,1,1};
+const int8_t MSEQ[] = {0,1,0,0,0,0,0,0,0,1,0,1,1,1,0,0,0,1,1,1,0,1,1,1,1,0,0,0,1,0,1,1,0,0,1,1,0,1,1,0,0,0,0,1,1,1,1,0,0,1,1,1,0,0,0,0,1,0,1,0,1,1,1,1,1,1,1,1,0,0,1,0,1,1,1,1,0,1,0,0,1,0,1,0,0,0,0,1,1,0,1,1,1,0,1,1,0,1,1,1,1,1,0,1,0,1,1,1,0,1,0,0,0,0,0,1,1,0,0,1,0,1,0,1,0,1,0,0,0,1,1,0,1,0,1,1,0,0,0,1,1,0,0,0,0,0,1,0,0,1,0,1,1,0,1,1,0,1,0,1,0,0,1,1,0,1,0,0,1,1,1,1,1,1,0,1,1,1,0,0,1,1,0,0,1,1,1,1,0,1,1,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,1,1,0,0,1,0,0,1,0,0,1,1,0,0,0,1,0,0,1,1,1,0,1,0,1,0,1,1,0,1,0,0,0,1,0,0,0,1,0,1,0,0,1,0,0,0,1,1,1,1,1};
 
 // lpf
-const int B[] = {5416, 21664, 32496, 21664, 5416};
-const int KB = 26;
-const int A[] ={4096, -14226, 18652, -10931, 2415};
-const int KA = 12;
+int32_t z[ORDER] = {0};
 
-#define N_SAMPLES_PER_CHIP 64
-#define N_CHIPS_PER_BIT (sizeof(MSEQ)/sizeof(MSEQ[0]))
-#define ORDER (sizeof(B)/sizeof(B[0])-1)
-#define N_ACC 16
-#define DECISION_THRESH 160000
 
-int callback( void* /* outputBuffer */, void* inputBuffer, unsigned int nBufferFrames,
-         double /* streamTime */, RtAudioStreamStatus status, void* userData )
-{
-  static int z[ORDER] = {0};
-
-  if (status) std::cerr << "Overflow!" << std::endl;
-
-  ThreadSafeQueue<int>* pq = (ThreadSafeQueue<int>*)userData;
-  signed short* buffer = (signed short*) inputBuffer;
   int x0, x1, x2;
 
   for (int i=0; i<nBufferFrames; i++) {
@@ -65,14 +48,28 @@ int callback( void* /* outputBuffer */, void* inputBuffer, unsigned int nBufferF
     pq->push(x2);
   }
 
-  return 0;
-}
 
-inline int approx_dist(int x, int y) {
-  x = abs(x);
-  y = abs(y);
-  int min = x<y ? x : y;
-  return (x + y - (min >> 1) - (min >> 2) + (min >> 4));
+
+
+
+
+
+
+
+int callback( void* /* out_buf */, void* in_buf, unsigned samples,  double /* timestamp */, RtAudioStreamStatus status, void* shared_data) {
+    if (status) std::cerr << "Overflow!" << std::endl;
+
+    sample_t* buf = (sample_t*) in_buf;
+    ThreadSafeQueue<int16_t>* pq = (ThreadSafeQueue<int16_t>*)shared_data;
+
+    int avg;
+    for (int i=0; i<samples; i++) {
+        avg = buf[i].left + buf[i].right;
+        avg = ((avg & 1) & ((avg >> 1) & 1)) + (avg >> 1); // improved round(mean(left, right))
+        pq->push(avg);
+    }
+
+    return 0;
 }
 
 int main()
@@ -84,7 +81,7 @@ int main()
   }
   RtAudio::StreamParameters parameters;
   parameters.deviceId = adc.getDefaultInputDevice();
-  parameters.nChannels = 1;
+  parameters.nChannels = 2;
   parameters.firstChannel = 0;
   unsigned int sampleRate = 48000;
   unsigned int bufferFrames = 2048;
