@@ -1,6 +1,6 @@
 #include "RtAudio.h"
 #include <iostream>
-#include "ThreadSafeQueue.hpp"
+#include "fifo.hpp"
 #include "dsp.hpp"
 
 using namespace std;
@@ -9,7 +9,7 @@ int callback( void* out_buf, void* /* in_buf */, unsigned samples, double /* tim
   static unsigned int nTxFrameRemainder = SAMPLES_PER_CHIP*CHIPS_PER_BIT;
   static int z[ORDER] = {0};
 
-  if (status) std::cout << "Underflow!" << std::endl;
+  if (status) cout << "Underflow!" << endl;
 
   ThreadSafeQueue<signed short>* pq = (ThreadSafeQueue<signed short>*)userData;
   signed short* buffer = (signed short*) outputBuffer;
@@ -41,37 +41,37 @@ int callback( void* out_buf, void* /* in_buf */, unsigned samples, double /* tim
   return 0;
 }
 
+
+
 int main()
 {
+    fifo<signed short> q;
 
-  RtAudio dac;
-  if ( dac.getDeviceCount() < 1 ) {
-    std::cout << "\nNo audio devices found!\n";
-    exit( 0 );
-  }
-  RtAudio::StreamParameters parameters;
-  parameters.deviceId = dac.getDefaultOutputDevice();
-  parameters.nChannels = 2;
-  parameters.firstChannel = 0;
-  unsigned int sampleRate = 48000;
-  unsigned int bufferFrames = 2048;
+    RtAudio dac;
+    if (dev.getDeviceCount() < 1) {
+        cerr << "No audio devices found!" << endl;
+        return false;
+    }
+    RtAudio::StreamParameters parameters;
+    parameters.deviceId = dac.getDefaultOutputDevice();
+    parameters.nChannels = 2;
+    parameters.firstChannel = 0;
+    unsigned int sampleRate = 48000;
+    unsigned int bufferFrames = 2048;
 
-  ThreadSafeQueue<signed short> q;
-
-  try {
-    dac.openStream( &parameters, NULL, RTAUDIO_SINT16,
-                    sampleRate, &bufferFrames, &callback, (void *)&q);
-    dac.startStream();
-  }
-  catch ( RtAudioError& e ) {
-    e.printMessage();
-    exit( 0 );
-  }
+    try {
+        dac.openStream(&parameters, NULL, RTAUDIO_SINT16, sampleRate, &bufferFrames, &callback, (void *)&q);
+        dac.startStream();
+    }
+    catch ( RtAudioError& e ) {
+        e.printMessage();
+        return (-1);
+    }
   
   char c;
-  std::cout << ">> ";
+  cout << ">> ";
   while (true) {
-    if (std::cin.get(c)) {
+    if (cin.get(c)) {
       for (int i=0; i<8; i++) {
         for (int j=0; j<N_CHIPS_PER_BIT; j++) {
           for (int k=0; k<N_SAMPLES_PER_CHIP; k++) {
@@ -80,7 +80,7 @@ int main()
         }
       }
       if (c=='\n') {
-        std::cout << ">> ";
+        cout << ">> ";
       }
     } else {
       break;
