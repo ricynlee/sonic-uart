@@ -36,4 +36,9 @@ public:
         std::queue::pop();
         return true;
     }
+
+    int size(void) {
+        std::lock_guard<std::mutex> lock(mtx);
+        return std::queue::size();
+    }
 };
