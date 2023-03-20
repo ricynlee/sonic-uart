@@ -5,40 +5,47 @@
 #include <condition_variable>
 
 template <typename type>
-class fifo: private std::queue<type> {
+class fifo {
 private:
+    std::queue<type> q;
     std::mutex mtx;
     std::condition_variable cv;
 public:
     void write(type& elem) {
         std::lock_guard<std::mutex> lock(mtx);
-        std::queue::push(elem);
+        q.push(elem);
         cv.notify_one();
     }
 
-    type& read(void) { // blocking read
+    void write(type elem) {
+        std::lock_guard<std::mutex> lock(mtx);
+        q.push(elem);
+        cv.notify_one();
+    }
+
+    type read(void) { // blocking read
         std::unique_lock<std::mutex> lock(mtx);
-        if (std::queue::empty()) { // main & callback threads, no spurious wakeup
+        if (q.empty()) { // main & callback threads, no spurious wakeup
             cv.wait(lock);
         }
-        type& elem = std::queue::front();
-        std::queue::pop();
+        type elem = q.front();
+        q.pop();
         return elem;
     }
 
-    bool peek(type& elem) { // non-blocking read
+    bool peek(type& elem) { // non-blocking attempt to read
         std::lock_guard<std::mutex> lock(mtx);
-        if (std::queue::empty()) {
+        if (q.empty()) {
             return false;
+        } else {
+            elem = q.front();
+            q.pop();
+            return true;
         }
-
-        elem = std::queue::front();
-        std::queue::pop();
-        return true;
     }
 
-    int size(void) {
+    unsigned size(void) {
         std::lock_guard<std::mutex> lock(mtx);
-        return std::queue::size();
+        return q.size();
     }
 };

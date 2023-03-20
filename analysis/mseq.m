@@ -25,3 +25,14 @@ if length(unique(state))==2^ORDER
 else
     fprintf('NOT MSEQ!\n');
 end
+
+m = reshape(repmat(m, 16, 1), 1, length(m)*16);
+
+s = zeros(1, length(m));
+for i=0:(length(m)-1)
+    for j=1:length(m)
+        s(i+1) = s(i+1) + m(j)*m(mod(j+i, length(m))+1);
+    end
+end
+
+plot(s, '.');
