@@ -1,7 +1,8 @@
 #include "RtAudio.h"
-#include <cstdint>
 #include <iostream>
+#include <cstring>
 #include <string>
+#include <immintrin.h>
 #include "fifo.hpp"
 #include "dsp.hpp"
 
@@ -10,14 +11,48 @@ using namespace std;
 #define SAMPLES_TX_ATOMIC_UNIT 1024 // common divisor of samples per DSSS code and samples per byte (2 symbols minimum can be a byte), cannot be too small (e.g., 128) so as not to under run
 
 typedef struct {
-    int16_t left;
-    int16_t right;
+    float left;
+    float right;
 } sample_t;
 
-inline int tx_filter(int x) { // iir bpf for modulation
-    int y;
-    GEN_FILT(MOD_FILT_ORDER, y, x, MOD_B, MOD_A, MOD_B_FRAC_WID, MOD_A_FRAC_WID);
-    return y;
+#if defined(__AVX__)
+typedef union {
+    __m256 d;
+    float  f[8];
+    int    i[8]; // only 32-bit int supported
+} packed_t;
+
+__attribute__((aligned(4))) float b[ORDER+1];
+__attribute__((aligned(4))) float z[ORDER+1];
+#endif
+
+
+void init_filter() {
+    memset(z, 0, ORDER+1);
+#if defined(__AVX__)
+
+    packed_t vindex = {
+        .i = {0,16,32,48,64,80,96,112}
+    };
+    for (int i=0; i<(ORDER+1)/8; i++) {
+        ((packed_t*)(b+i*8))->d = _mm256_i32gather_ps(B+i, vindex.d, 4);
+    }
+#endif
+}
+
+inline float filter(float x) {
+#if defined(__AVX__)
+    packed_t s = {
+        .f = {0}
+    };
+    for (int i=0; i<(ORDER+1)/8; i++) {
+        s.d = _mm256_fmadd_ps(((packed_t*)(z+i*8))->d, ((packed_t*)(b+i*8))->d, s.d);
+    }
+
+
+#else // fpu
+
+#endif
 }
 
 fifo<int16_t> itdi; // inter-thread data interface
