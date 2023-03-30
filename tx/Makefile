@@ -1,4 +1,11 @@
 CXX=g++
+AVX=1
+
+ifeq ($(AVX), 1)
+	AVXFLAG=-mavx2 -mfma
+else
+	AVXFLAG=
+endif
 
 all: run clean
 
@@ -10,7 +17,7 @@ tx.exe: tx.o ../librtaudio.a
 	$(CXX) $^ -lksuser -lmfplat -lmfuuid -lwmcodecdspuuid -lwinmm -lole32 -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 -lpthread -o $@
 
 tx.o: tx.cpp ../RtAudio.h ../fifo.hpp ../dsp.hpp
-	$(CXX) $< -c -std=c++11 -o $@ -I../
+	$(CXX) $< -c -std=c++11 $(AVXFLAG) -o $@ -I../
 
 clean:
 	-rm *.o *.exe
