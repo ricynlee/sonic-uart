@@ -11,11 +11,11 @@ private:
     std::mutex mtx;
     std::condition_variable cv;
 public:
-    void write(type& elem) {
-        std::lock_guard<std::mutex> lock(mtx);
-        q.push(elem);
-        cv.notify_one();
-    }
+    // void write(type& elem) {
+    //     std::lock_guard<std::mutex> lock(mtx);
+    //     q.push(elem);
+    //     cv.notify_one();
+    // }
 
     void write(type elem) {
         std::lock_guard<std::mutex> lock(mtx);

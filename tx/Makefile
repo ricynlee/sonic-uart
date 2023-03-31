@@ -1,10 +1,9 @@
 CXX=g++
-AVX=1
 
-ifeq ($(AVX), 1)
-	AVXFLAG=-mavx2 -mfma
-else
+ifeq ($(AVX), off)
 	AVXFLAG=
+else
+	AVXFLAG=-mavx2 -mfma
 endif
 
 all: run clean
