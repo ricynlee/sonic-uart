@@ -11,7 +11,9 @@ for i=1:(2^ORDER-1)
     state(i+1)=sum(a.*(2.^(0:ORDER-1)));
     m(i+1)=a(1);
     if ORDER==6
-        f=xor(a(1), a(2));
+        % f=xor(a(1), a(2)); % 000011
+        f=xor(xor(a(1), a(2)), xor(a(3), a(6))); % 100111
+        % f=xor(xor(a(1), a(3)), xor(a(4), a(6))); % 101101        
     elseif ORDER==8
         f=xor(xor(a(1), a(2)), xor(a(6), a(7)));
     end

@@ -1,9 +1,6 @@
 #pragma once
 
-// parameter that can be overriden in makefile
-#define SAMPLES_PER_CHIP 128 // for frequency spreading, 64~512
-#define CAPTURE_THRESH (40)
-#define DECISION_THRESH (1.5)
+static const int SAMPLES_PER_CHIP = 256;
 
 // oscillator for frequency mixing
 static const float SIN[8] = {0, 0.353553390593274, -0.5, 0.353553390593274, 0, -0.353553390593273, 0.5, -0.353553390593274};
@@ -15,16 +12,23 @@ static const float B[128] = {-7.33712295186706e-06, -1.19098694995046e-05, -2.12
 static const int ORDER = sizeof(B)/sizeof(B[0])-1;
 
 // maximum-length sequence for frequency spreading/despreading
-static const char MSEQ[] = {1,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,1,0,0,1,1,1,1,0,1,0,0,0,1,1,1,0,0,1,0,0,1,0,1,1,0,1,1,1,0,1,1,0,0,1,1,0,1,0,1,0,1,1,1,1,1};
+static const char MSEQ[] = {0,1,0,0,0,0,0,1,1,1,1,0,0,1,0,0,1,0,1,0,1,0,0,1,1,0,1,0,0,0,0,1,0,0,0,1,0,1,1,0,1,1,1,1,1,1,0,1,0,1,1,1,0,0,0,1,1,0,0,1,1,1,0,1};
 static const int CHIPS = sizeof(MSEQ)/sizeof(MSEQ[0]);
 
 // others
 static const int SAMPLE_RATE = 48000;
 static const int CHANNELS = 2;
-static const int SAMPLES_PER_BIT = 1024;
-static const int ASYNC_ACCUM = SAMPLES_PER_CHIP/16;
-static const int SYNC_ACCUM = SAMPLES_PER_BIT;
+static const int SAMPLES_PER_BIT = 256;
+static const int DOWN_SAMPLE = SAMPLES_PER_CHIP/16;
 
-#define BUF_DEPTH 1024 // common divisor of (SAMPLES_PER_CHIP*(CHIPS+1)) and samples per byte (2 symbols minimum can be a byte)
-                       // either >ORDER or a divisor of ORDER
-                       // cannot be too small (e.g., <256) in case of overflow/underflow
+static const int BUF_DEPTH = 512;   // common divisor of (SAMPLES_PER_CHIP*(CHIPS+1)) and samples per byte (2 symbols minimum can be a byte)
+                                    // either >ORDER or a divisor of ORDER
+                                    // cannot be too small (e.g., <256) in case of overflow/underflow
+
+static const int SCHEME_BITS = 1;
+enum {
+    PSK_2,
+    QAM_16
+};
+
+static const int LENGTH_BITS = 7;

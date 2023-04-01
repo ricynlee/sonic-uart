@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cstring>
 #include <immintrin.h>
+#include <thread>
 #include "fifo.hpp"
 #include "dsp.hpp"
 
@@ -99,10 +100,11 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
 }
 
 void tx_modulate(const char* const data, unsigned len) {
-    if (!data || !len) {
+    if (len && (!data)) { // an exit sequence to rx side if len==0
         return;
     }
-    // frame header
+
+    // preamble
     for (int i=0; i<CHIPS; i++) {
         for (int j=0; j<SAMPLES_PER_CHIP; j++) {
             q.write(COS[j & 7] * filter(1-2*MSEQ[i]));
@@ -112,13 +114,31 @@ void tx_modulate(const char* const data, unsigned len) {
     for (int i=0; i<SAMPLES_PER_CHIP; i++) {
         q.write(COS[i & 7] * filter(0));
     }
+
+    // digital modem scheme - always in 2psk form
+    char scheme = PSK_2;
+    for (int i=0; i<SCHEME_BITS; i++) {
+        int bit = (scheme>>i) & 1; // lsb first
+        for (int j=0; j<SAMPLES_PER_BIT; j++) {
+            q.write(COS[j & 7] * filter(1-2*bit));
+        }
+    }
+
+    // frame length in octets - always in 2psk form
+    len &= ~((-1)<<LENGTH_BITS);
+    for (int i=0; i<LENGTH_BITS; i++) {
+        int bit = (len>>i) & 1; // lsb first
+        for (int j=0; j<SAMPLES_PER_BIT; j++) {
+            q.write(COS[j & 7] * filter(1-2*bit));
+        }
+    }
+
     // frame body
-    int bit;
-    for (const char* p=data; *p; p++) {
-        for (int i=0; i<8; i++) {
-            bit = ((*p)>>i) & 1; // lsb first
-            for (int j=0; j<SAMPLES_PER_BIT; j++) {
-                q.write(COS[j & 7] * filter(1-2*bit));
+    for (int i=0; i<len; i++) {
+        for (int j=0; j<8; j++) {
+            int bit = (data[i]>>j) & 1; // lsb first
+            for (int k=0; k<SAMPLES_PER_BIT; k++) {
+                q.write(COS[k & 7] * filter(1-2*bit));
             }
         }
     }
@@ -135,9 +155,17 @@ void ui(void) {
     while (true) {
         cout << "> ";
         if (getline(cin, s).eof()) {
+            this_thread::sleep_for(chrono::milliseconds(200)); // avoid jamming of typing
+            tx_modulate(NULL, 0);
             break;
+        } else {
+            this_thread::sleep_for(chrono::milliseconds(200)); // avoid jamming of typing
+            tx_modulate(s.c_str(), s.length());
         }
-        tx_modulate(s.c_str(), s.length());
+    }
+
+    while (q.size()) {
+        this_thread::sleep_for(chrono::milliseconds(200)); // wait until all data is sent
     }
 }
 
@@ -163,7 +191,7 @@ int main()
         e.printMessage();
         return (-1);
     }
-  
+
     ui();
 
     try {
