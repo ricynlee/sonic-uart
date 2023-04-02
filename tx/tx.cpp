@@ -74,14 +74,16 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
         cerr << "Underflow!" << endl;
     }
 
+    sample_t* buffer = (sample_t*) out_buf;
+#if 0 // low-latency routine, but latency does not matter
     static int remaining_samples = BUF_DEPTH;
 
-    sample_t* buffer = (sample_t*) out_buf;
     float x;
     for (int i=0; i<BUF_DEPTH; i++) {
         unsigned fifo_size = q.size();
         if ((fifo_size >= BUF_DEPTH-i) || (fifo_size >= remaining_samples)) {
             if (q.peek(x)) {
+                x *= TX_PA;
                 if ((--remaining_samples)==0) {
                     remaining_samples = BUF_DEPTH;
                 }
@@ -92,10 +94,39 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
             x = 0;
         }
 
-        buffer[i].left = x;
+        // choose one channel
         buffer[i].right = x;
+        buffer[i].left = 0;
     }
+#else // wearing balancing scheme
+    static bool wearing = false;
+    static bool right = false;
+    unsigned fifo_size = q.size();
+    float x;
 
+    if (fifo_size<BUF_DEPTH) {
+        if ( /*prior*/ wearing==true ) {
+            right = !right;
+        }
+        wearing = false;
+        for (int i=0; i<BUF_DEPTH; i++) {
+            buffer[i].right = 0;
+            buffer[i].left = 0;
+        }
+    } else if (right) {
+        wearing = true;
+        for (int i=0; i<BUF_DEPTH; i++) {
+            buffer[i].right = q.read();
+            buffer[i].left = 0;
+        }
+    } else /* !right */ {
+        wearing = true;
+        for (int i=0; i<BUF_DEPTH; i++) {
+            buffer[i].right = 0;
+            buffer[i].left = q.read();
+        }
+    }
+#endif
     return 0;
 }
 
@@ -110,7 +141,8 @@ void tx_modulate(const char* const data, unsigned len) {
             q.write(COS[j & 7] * filter(1-2*MSEQ[i]));
         }
     }
-    // bubble for 1 chip
+
+    // bubble
     for (int i=0; i<SAMPLES_PER_CHIP; i++) {
         q.write(COS[i & 7] * filter(0));
     }
@@ -142,6 +174,7 @@ void tx_modulate(const char* const data, unsigned len) {
             }
         }
     }
+
     // pick up remainders in the filter
     for (int i=0; i<BUF_DEPTH; i++) {
         q.write(COS[i & 7] * filter(0));

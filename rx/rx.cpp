@@ -122,7 +122,7 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
     sample_t* buf = (sample_t*) in_buf;
 
     for (int i=0; i<BUF_DEPTH; i++) {
-        q.write((buf[i].left + buf[i].right)/2);
+        q.write(buf[i].left);
     }
 
     return 0;
