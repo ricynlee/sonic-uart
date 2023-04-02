@@ -1,105 +1,16 @@
 #include "RtAudio.h"
 #include <iostream>
 #include <cmath>
-#include <immintrin.h>
 #include "dsp.hpp"
 #include "fifo.hpp"
 
 using namespace std;
 
-typedef struct {
-    float left;
-    float right;
-} sample_t;
-
-#if defined(__AVX__)
-typedef union {
-    __m256  d;
-    __m256i di;
-    float   f[8];
-    int     i[8]; // only 32-bit int supported
-} packed_t;
-
-__attribute__((aligned(32))) float b[(ORDER+1)/8][8];
-__attribute__((aligned(32))) float zi[(ORDER+1)/8][8];
-__attribute__((aligned(32))) float zq[(ORDER+1)/8][8];
-#else
-float zi[ORDER+1];
-float zq[ORDER+1];
-#endif
-
-void init_filter(void) {
-#if defined(__AVX__)
-    packed_t vindex = {
-        .i = {0,16,32,48,64,80,96,112}
-    };
-
-    for (int i=0; i<(ORDER+1)/8; i++) {
-        ((packed_t*)(zi+i))->d = _mm256_setzero_ps();
-        ((packed_t*)(zq+i))->d = _mm256_setzero_ps();
-        ((packed_t*)(b+i))->d = _mm256_i32gather_ps(B+i, vindex.d, 4); // reshape coef
-    }
-#else
-    memset(zi, 0, sizeof(zi));
-    memset(zq, 0, sizeof(zq));
-#endif
-}
-
-inline float filteri(float x) {
-    static int i = 0;
-#if defined(__AVX__)
-    packed_t s = {
-        .f = {0}
-    };
-
-    ((packed_t*)(zi+i))->d = _mm256_permute_ps(((packed_t*)(zi+i))->d, 0x39);
-    zi[i][3] = zi[i][7];
-    zi[i][7] = x;
-
-    i = (i+1)%(sizeof(zi)/sizeof(zi[0]));
-    for (int j=0; j<(sizeof(zi)/sizeof(zi[0])); j++) {
-        s.d = _mm256_fmadd_ps(((packed_t*)(zi+(j+i)%(sizeof(zi)/sizeof(zi[0]))))->d, ((packed_t*)(b+j))->d, s.d);
-    }
-
-    packed_t s_tmp;
-    s_tmp.d = _mm256_hadd_ps(s.d, s.d);
-    s.d = _mm256_hadd_ps(s_tmp.d, s_tmp.d); // or just return s_tmp.f[2] + [3] + [4] + [5]
-    return (s.f[3] + s.f[4]);
-#else // non-AVX
-
-#endif
-}
-
-inline float filterq(float x) {
-    static int i = 0;
-#if defined(__AVX__)
-    packed_t s = {
-        .f = {0}
-    };
-
-    ((packed_t*)(zq+i))->d = _mm256_permute_ps(((packed_t*)(zq+i))->d, 0x39);
-    zq[i][3] = zq[i][7];
-    zq[i][7] = x;
-
-    i = (i+1)%(sizeof(zq)/sizeof(zq[0]));
-    for (int j=0; j<(sizeof(zq)/sizeof(zq[0])); j++) {
-        s.d = _mm256_fmadd_ps(((packed_t*)(zq+(j+i)%(sizeof(zq)/sizeof(zq[0]))))->d, ((packed_t*)(b+j))->d, s.d);
-    }
-
-    packed_t s_tmp;
-    s_tmp.d = _mm256_hadd_ps(s.d, s.d);
-    s.d = _mm256_hadd_ps(s_tmp.d, s_tmp.d); // or just return s_tmp.f[2] + [3] + [4] + [5]
-    return (s.f[3] + s.f[4]);
-#else // non-AVX
-
-#endif
-}
-
 inline float amp(float xi, float xq) {
     return sqrt(xi*xi+xq*xq);
 }
 
-float srx, sry;
+float srx, sry; // for constellation scaling and rotating
 
 void init_scale_rotate(float sra, float sri, float srq) {
     sra *= sra;
@@ -151,8 +62,8 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
             for (int i=0; i<DOWN_SAMPLE; i++) {
                 float x = q.read();
-                wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] = filteri(x * COS[i & 7]);
-                winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] = filterq(x * -SIN[i & 7]);
+                wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] += filteri(x * COS[i & 7] / 2);
+                winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] += filterq(x * -SIN[i & 7] / 2);
             }
 
             // cout << wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] << ' ' << winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] << ' ';
@@ -166,15 +77,16 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             }
             peaka[2] = amp(peaki[2], peakq[2]);
 
-            // cout << peaka[2] << endl;
-            // continue;
-
             float capture_thresh = 0;
             for (int i=CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-CHIPS; i<CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE; i++) {
                 capture_thresh += amp(wini[i], winq[i]);
             }
-            if (capture_thresh>3e-3) {
-                capture_thresh *= 300;
+
+            // cout << peaka[2] << ' ' << capture_thresh << endl;
+            // continue;
+
+            if (capture_thresh>1) {
+                capture_thresh *= 6;
                 if (peaka[1]>capture_thresh && peaka[1]>=peaka[2] && peaka[1]>=peaka[0]) {
                     init_scale_rotate(peaka[1], peaki[1], peakq[1]);
                     break;
@@ -186,8 +98,8 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     // skip bubble
     for (int i=0; i<SAMPLES_PER_CHIP-DOWN_SAMPLE; i++) {
         float x = q.read();
-        filteri(x * COS[i & 7]);
-        filterq(x * -SIN[i & 7]);
+        filteri(x * COS[i & 7] / 2);
+        filterq(x * -SIN[i & 7] / 2);
     }
 
     // digital modem scheme
@@ -197,8 +109,8 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         float constelq = 0;
         for (int j=0; j<SAMPLES_PER_BIT; j++) {
             float x = q.read();
-            consteli += filteri(x * COS[j & 7]);
-            constelq += filterq(x * -SIN[j & 7]);
+            consteli += filteri(x * COS[j & 7] / 2);
+            constelq += filterq(x * -SIN[j & 7] / 2);
         }
         scale_rotate(consteli, constelq);
 
@@ -216,8 +128,8 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         float constelq = 0;
         for (int j=0; j<SAMPLES_PER_BIT; j++) {
             float x = q.read();
-            consteli += filteri(x * COS[j & 7]);
-            constelq += filterq(x * -SIN[j & 7]);
+            consteli += filteri(x * COS[j & 7] / 2);
+            constelq += filterq(x * -SIN[j & 7] / 2);
         }
         scale_rotate(consteli, constelq);
 
@@ -242,8 +154,8 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             float constelq = 0;
             for (int k=0; k<SAMPLES_PER_BIT; k++) {
                 float x = q.read();
-                consteli += filteri(x * COS[k & 7]);
-                constelq += filterq(x * -SIN[k & 7]);
+                consteli += filteri(x * COS[k & 7] / 2);
+                constelq += filterq(x * -SIN[k & 7] / 2);
             }
             scale_rotate(consteli, constelq);
 

@@ -2,39 +2,38 @@ clc;
 
 ORDER = 6; % 6 or 8
 
-a=[1, zeros(1,ORDER-1)];
+lfsr=[1, zeros(1,ORDER-1)];
 
-state = zeros(1, 2^ORDER);
-m = zeros(1, 2^ORDER);
+state = zeros(2^ORDER-1, 1);
+m = zeros(2^ORDER-1, 1);
 
 for i=1:(2^ORDER-1)
-    state(i+1)=sum(a.*(2.^(0:ORDER-1)));
-    m(i+1)=a(1); % initial 0 is for balancing, actually not part of mseq
+    state(i)=sum(lfsr.*(2.^(0:ORDER-1)));
+    m(i)=lfsr(1);
     if ORDER==6
-        % f=xor(a(1), a(2)); % 000011
-        f=xor(xor(a(1), a(2)), xor(a(3), a(6))); % 100111
-        % f=xor(xor(a(1), a(3)), xor(a(4), a(6))); % 101101        
+        % f=xor(lfsr(1), lfsr(2)); % 000011
+        % f=xor(xor(lfsr(1), lfsr(2)), xor(lfsr(3), lfsr(6))); % 100111
+        f=xor(xor(lfsr(1), lfsr(3)), xor(lfsr(4), lfsr(6))); % 101101        
     elseif ORDER==8
-        f=xor(xor(a(1), a(2)), xor(a(6), a(7)));
+        f=xor(xor(lfsr(1), lfsr(2)), xor(lfsr(6), lfsr(7)));
     end
-    a=[a(2:ORDER), f];
+    lfsr=[lfsr(2:ORDER), f];
 end
 
-if length(unique(state))==2^ORDER
-    fprintf('m seq (extra leading 0 added):\n');
+if length(unique(state))==2^ORDER-1
     fprintf('%d,', m);
     fprintf('\n');
 else
     fprintf('NOT MSEQ!\n');
 end
 
-m = reshape(repmat(m, 16, 1), 1, length(m)*16);
+m = 2*m-1;
 
-s = zeros(1, length(m));
-for i=0:(length(m)-1)
-    for j=1:length(m)
-        s(i+1) = s(i+1) + m(j)*m(mod(j+i, length(m))+1);
-    end
+ac = zeros(1, 2^ORDER-1);
+for i=1:2^ORDER-1
+    sh = i-1+floor(-(2^ORDER-1)/2);
+    ac(i) = abs(circshift(m, sh)'*m);
 end
 
-plot(s, '.');
+plot(ac, 'LineSmooth', 'on');
+grid on;
