@@ -94,7 +94,6 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
             x = 0;
         }
 
-        // choose one channel
         buffer[i].right = x;
         buffer[i].left = 0;
     }

@@ -170,11 +170,8 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             // continue;
 
             float capture_thresh = 0;
-            for (int i=CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE/10*9; i<CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE; i++) {
-                float tmpa = amp(wini[i], winq[i]);
-                if (tmpa > capture_thresh) {
-                    capture_thresh = tmpa;
-                }
+            for (int i=CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-CHIPS; i<CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE; i++) {
+                capture_thresh += amp(wini[i], winq[i]);
             }
             if (capture_thresh>3e-3) {
                 capture_thresh *= 300;
