@@ -33,7 +33,7 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
     sample_t* buf = (sample_t*) in_buf;
 
     for (int i=0; i<BUF_DEPTH; i++) {
-        q.write(buf[i].left);
+        q.write(buf[i].right);
     }
 
     return 0;
@@ -66,6 +66,9 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
                 winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] += filterq(x * -SIN[i & 7] / 2);
             }
 
+            wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] /= DOWN_SAMPLE;
+            winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] /= DOWN_SAMPLE;
+
             // cout << wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] << ' ' << winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] << ' ';
 
             peaki[0] = peaki[1]; peaki[1] = peaki[2]; peaki[2] = 0;
@@ -81,12 +84,13 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             for (int i=CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-CHIPS; i<CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE; i++) {
                 capture_thresh += amp(wini[i], winq[i]);
             }
+            capture_thresh /= CHIPS;
 
             // cout << peaka[2] << ' ' << capture_thresh << endl;
             // continue;
 
-            if (capture_thresh>1) {
-                capture_thresh *= 6;
+            if (capture_thresh>1e-3) {
+                capture_thresh *= 384;
                 if (peaka[1]>capture_thresh && peaka[1]>=peaka[2] && peaka[1]>=peaka[0]) {
                     init_scale_rotate(peaka[1], peaki[1], peakq[1]);
                     break;
