@@ -6,6 +6,8 @@
 
 using namespace std;
 
+static const int RX_BUF_DEPTH = 1024;
+
 inline float amp(float xi, float xq) {
     return sqrt(xi*xi+xq*xq);
 }
@@ -33,7 +35,7 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
 
     sample_t* buf = (sample_t*) in_buf;
 
-    for (int i=0; i<1024; i++) {
+    for (int i=0; i<RX_BUF_DEPTH; i++) {
         q.write(buf[i].left);
     }
 
@@ -177,6 +179,13 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             data[i] = octet;
         }
     }
+
+    // protective margin
+    for (int i=0; i<RX_BUF_DEPTH; i++) {
+        float x = q.read();
+        filteri(x * COS[i & 7] / 2);
+        filterq(x * -SIN[i & 7] / 2);
+    }
 }
 
 void ui(void) {
@@ -211,7 +220,7 @@ int main()
     parameters.nChannels = 2;
     parameters.firstChannel = 0;
     unsigned int sampleRate = SAMPLE_RATE;
-    unsigned int bufferFrames = 1024;
+    unsigned int bufferFrames = RX_BUF_DEPTH;
 
     try {
         dev.openStream( NULL, &parameters, RTAUDIO_FLOAT32, sampleRate, &bufferFrames, &rx_callback, (void *)&q);
