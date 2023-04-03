@@ -32,7 +32,7 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
 
     sample_t* buf = (sample_t*) in_buf;
 
-    for (int i=0; i<BUF_DEPTH; i++) {
+    for (int i=0; i<2048; i++) {
         q.write(buf[i].right);
     }
 
@@ -68,28 +68,24 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] /= DOWN_SAMPLE;
             winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] /= DOWN_SAMPLE;
 
-            // cout << wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] << ' ' << winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] << ' ';
+            cout << wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] << ' ' << winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] << ' ';
 
+            float capture_thresh = 0;
             peaki[0] = peaki[1]; peaki[1] = peaki[2]; peaki[2] = 0;
             peakq[0] = peakq[1]; peakq[1] = peakq[2]; peakq[2] = 0;
             peaka[0] = peaka[1]; peaka[1] = peaka[2];
             for (int i=0; i<CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE; i++) {
                 peaki[2] += wini[i] * (1-2*MSEQ[i/(SAMPLES_PER_CHIP/DOWN_SAMPLE)]);
                 peakq[2] += winq[i] * (1-2*MSEQ[i/(SAMPLES_PER_CHIP/DOWN_SAMPLE)]);
+                capture_thresh += amp(wini[i], winq[i]);
             }
             peaka[2] = amp(peaki[2], peakq[2]);
 
-            float capture_thresh = 0;
-            for (int i=CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-CHIPS; i<CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE; i++) {
-                capture_thresh += amp(wini[i], winq[i]);
-            }
-            capture_thresh /= CHIPS;
-
-            // cout << peaka[2] << ' ' << capture_thresh << endl;
-            // continue;
+            cout << peaka[2] << ' ' << capture_thresh << endl;
+            continue;
 
             if (capture_thresh>1e-3) {
-                capture_thresh *= 240;
+                capture_thresh *= 6; // fixed
                 if (peaka[1]>capture_thresh && peaka[1]>=peaka[2] && peaka[1]>=peaka[0]) {
                     init_scale_rotate(peaka[1], peaki[1], peakq[1]);
                     break;
@@ -162,8 +158,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             }
             scale_rotate(consteli, constelq);
 
-            // cout << consteli << ' ' << constelq << endl;
-            // continue;
+            cout << consteli << ' ' << constelq << endl;
 
             if (consteli > 0) {
                 octet &= ~(1<<j); // 1'b0
@@ -210,7 +205,7 @@ int main()
     parameters.nChannels = 2;
     parameters.firstChannel = 0;
     unsigned int sampleRate = SAMPLE_RATE;
-    unsigned int bufferFrames = BUF_DEPTH;
+    unsigned int bufferFrames = 2048;
 
     try {
         dev.openStream( NULL, &parameters, RTAUDIO_FLOAT32, sampleRate, &bufferFrames, &rx_callback, (void *)&q);

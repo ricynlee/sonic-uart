@@ -20,24 +20,24 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
     static bool right = false;
     unsigned fifo_size = q.size();
 
-    if (fifo_size<BUF_DEPTH) {
+    if (fifo_size<TX_BUF_DEPTH) {
         if ( /*prior*/ wearing==true ) {
             right = !right;
         }
         wearing = false;
-        for (int i=0; i<BUF_DEPTH; i++) {
+        for (int i=0; i<TX_BUF_DEPTH; i++) {
             buffer[i].right = 0;
             buffer[i].left = 0;
         }
     } else if (right) {
         wearing = true;
-        for (int i=0; i<BUF_DEPTH; i++) {
+        for (int i=0; i<TX_BUF_DEPTH; i++) {
             buffer[i].right = q.read();
             buffer[i].left = 0;
         }
     } else /* !right */ {
         wearing = true;
-        for (int i=0; i<BUF_DEPTH; i++) {
+        for (int i=0; i<TX_BUF_DEPTH; i++) {
             buffer[i].right = 0;
             buffer[i].left = q.read();
         }
@@ -92,7 +92,7 @@ void tx_modulate(const char* const data, unsigned len) {
     }
 
     // pick up remainders in the filteri
-    for (int i=0; i<BUF_DEPTH; i++) {
+    for (int i=0; i<TX_BUF_DEPTH; i++) {
         q.write(COS[i & 7] * filteri(0));
     }
 }
@@ -130,7 +130,7 @@ int main()
     parameters.nChannels = 2;
     parameters.firstChannel = 0;
     unsigned int sampleRate = SAMPLE_RATE;
-    unsigned int bufferFrames = BUF_DEPTH;
+    unsigned int bufferFrames = TX_BUF_DEPTH;
 
     try {
         dev.openStream(&parameters, NULL, RTAUDIO_FLOAT32, sampleRate, &bufferFrames, &tx_callback, (void *)&q);

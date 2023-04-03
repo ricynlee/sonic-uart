@@ -27,7 +27,7 @@ static const int SAMPLES_PER_BIT = 256;
 static const float TX_PA = 1.5;
 static const int LENGTH_BITS = 7;
 static const int SCHEME_BITS = 1;
-static const int BUF_DEPTH = 512;   // common divisor of (SAMPLES_PER_CHIP*(CHIPS+1)) and samples per byte (2 symbols minimum can be a byte)
+static const int TX_BUF_DEPTH = 512;   // common divisor of (SAMPLES_PER_CHIP*(CHIPS+1)) and samples per byte (2 symbols minimum can be a byte)
                                     // >ORDER
                                     // cannot be too small (e.g., <256) in case of overflow/underflow
 
