@@ -92,8 +92,8 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             // cout << peaka[2] << ' ' << capture_thresh << endl;
             // continue;
 
-            if (capture_thresh>0.1) { // this parameter is subject to laptop models
-                capture_thresh *= 5; // fixed
+            if (capture_thresh>1) { // this parameter is subject to laptop models (0.1 for my laptop)
+                capture_thresh *= 3; // this parameter is subject to environment (5 for my bedroom)
                 if (peaka[1]>capture_thresh && peaka[1]>=peaka[2] && peaka[1]>=peaka[0]) {
                     init_scale_rotate(peaka[1], peaki[1], peakq[1]);
                     break;
