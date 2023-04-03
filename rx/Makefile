@@ -16,7 +16,7 @@ rx.exe: rx.o ../librtaudio.a
 	$(CXX) $^ -lksuser -lmfplat -lmfuuid -lwmcodecdspuuid -lwinmm -lole32 -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 -lpthread -o $@
 
 rx.o: rx.cpp ../RtAudio.h ../fifo.hpp ../dsp.hpp
-	$(CXX) $< -c -std=c++11 $(AVXFLAG) -o $@ -I../
+	$(CXX) $< -Wall -c -std=c++11 $(AVXFLAG) -o $@ -I../
 
 clean:
 	-rm *.o *.exe

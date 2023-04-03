@@ -19,7 +19,6 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
     static bool wearing = false;
     static bool right = false;
     unsigned fifo_size = q.size();
-    float x;
 
     if (fifo_size<BUF_DEPTH) {
         if ( /*prior*/ wearing==true ) {

@@ -20,7 +20,7 @@ public:
     void write(type elem) {
         std::lock_guard<std::mutex> lock(mtx);
         q.push(elem);
-        cv.notify_one();
+        cv.notify_all();
     }
 
     type read(void) { // blocking read

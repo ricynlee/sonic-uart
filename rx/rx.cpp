@@ -65,7 +65,6 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
                 wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] += filteri(x * COS[i & 7] / 2);
                 winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] += filterq(x * -SIN[i & 7] / 2);
             }
-
             wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] /= DOWN_SAMPLE;
             winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] /= DOWN_SAMPLE;
 

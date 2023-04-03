@@ -69,7 +69,7 @@ static inline void init_filter(void) {
     for (int i=0; i<(ORDER+1)/8; i++) {
         ((packed_t*)(zi+i))->d = _mm256_setzero_ps();
         ((packed_t*)(zq+i))->d = _mm256_setzero_ps();
-        ((packed_t*)(b+i))->d = _mm256_i32gather_ps(B+i, vindex.d, 4); // reshape coef
+        ((packed_t*)(b+i))->d = _mm256_i32gather_ps(B+i, vindex.di, 4); // reshape coef
     }
 #else
     memset(zi, 0, sizeof(zi));
