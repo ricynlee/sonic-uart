@@ -14,8 +14,9 @@ float srx, sry; // for constellation scaling and rotating
 
 void init_scale_rotate(float sra, float sri, float srq) {
     sra *= sra;
-    srx = sri/sra*(SAMPLES_PER_CHIP*CHIPS/DOWN_SAMPLE)/SAMPLES_PER_BIT;
-    sry = srq/sra*(SAMPLES_PER_CHIP*CHIPS/DOWN_SAMPLE)/SAMPLES_PER_BIT;
+    sra = sra * (SAMPLES_PER_SYM-2*MULTIPATH_MITIG) / ((SAMPLES_PER_CHIP-2*MULTIPATH_MITIG)*CHIPS/DOWN_SAMPLE);
+    srx = sri/sra;
+    sry = srq/sra;
 }
 
 inline void scale_rotate(float& xi, float& xq) {
@@ -73,9 +74,11 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             peaki[0] = peaki[1]; peaki[1] = peaki[2]; peaki[2] = 0;
             peakq[0] = peakq[1]; peakq[1] = peakq[2]; peakq[2] = 0;
             peaka[0] = peaka[1]; peaka[1] = peaka[2];
-            for (int i=0; i<CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE; i++) {
-                peaki[2] += wini[i] * (1-2*MSEQ[i/(SAMPLES_PER_CHIP/DOWN_SAMPLE)]);
-                peakq[2] += winq[i] * (1-2*MSEQ[i/(SAMPLES_PER_CHIP/DOWN_SAMPLE)]);
+            for (int i=0; i<CHIPS; i++) {
+                for (int j=MULTIPATH_MITIG/DOWN_SAMPLE; j<(SAMPLES_PER_CHIP-MULTIPATH_MITIG)/DOWN_SAMPLE; j++) {
+                    peaki[2] += wini[i*SAMPLES_PER_CHIP/DOWN_SAMPLE+j] * (1-2*MSEQ[i]);
+                    peakq[2] += winq[i*SAMPLES_PER_CHIP/DOWN_SAMPLE+j] * (1-2*MSEQ[i]);
+                }
             }
             peaka[2] = amp(peaki[2], peakq[2]);
 
@@ -87,7 +90,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             // cout << peaka[2] << ' ' << capture_thresh << endl;
             // continue;
 
-            if (capture_thresh>0.2) {
+            if (capture_thresh>0.1) { // this parameter is subject to laptop models
                 capture_thresh *= 5; // fixed
                 if (peaka[1]>capture_thresh && peaka[1]>=peaka[2] && peaka[1]>=peaka[0]) {
                     init_scale_rotate(peaka[1], peaki[1], peakq[1]);
@@ -109,7 +112,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     for (int i=0; i<SCHEME_BITS; i++) {
         float consteli = 0;
         float constelq = 0;
-        for (int j=0; j<SAMPLES_PER_BIT; j++) {
+        for (int j=0; j<SAMPLES_PER_SYM; j++) {
             float x = q.read();
             consteli += filteri(x * COS[j & 7] / 2);
             constelq += filterq(x * -SIN[j & 7] / 2);
@@ -128,7 +131,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     for (int i=0; i<LENGTH_BITS; i++) {
         float consteli = 0;
         float constelq = 0;
-        for (int j=0; j<SAMPLES_PER_BIT; j++) {
+        for (int j=0; j<SAMPLES_PER_SYM; j++) {
             float x = q.read();
             consteli += filteri(x * COS[j & 7] / 2);
             constelq += filterq(x * -SIN[j & 7] / 2);
@@ -154,14 +157,14 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         for (int j=0; j<8; j++) {
             float consteli = 0;
             float constelq = 0;
-            for (int k=0; k<SAMPLES_PER_BIT; k++) {
+            for (int k=0; k<SAMPLES_PER_SYM; k++) {
                 float x = q.read();
                 consteli += filteri(x * COS[k & 7] / 2);
                 constelq += filterq(x * -SIN[k & 7] / 2);
             }
             scale_rotate(consteli, constelq);
 
-            cout << consteli << ' ' << constelq << endl;
+            // cout << consteli << ' ' << constelq << endl;
 
             if (consteli > 0) {
                 octet &= ~(1<<j); // 1'b0

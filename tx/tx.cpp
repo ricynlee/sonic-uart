@@ -53,8 +53,14 @@ void tx_modulate(const char* const data, unsigned len) {
 
     // preamble
     for (int i=0; i<CHIPS; i++) {
-        for (int j=0; j<SAMPLES_PER_CHIP; j++) {
+        for (int j=0; j<MULTIPATH_MITIG; j++) {
+            q.write(COS[j & 7] * filteri(0));
+        }
+        for (int j=0; j<SAMPLES_PER_CHIP-2*MULTIPATH_MITIG; j++) {
             q.write(COS[j & 7] * filteri(1-2*MSEQ[i]));
+        }
+        for (int j=0; j<MULTIPATH_MITIG; j++) {
+            q.write(COS[j & 7] * filteri(0));
         }
     }
 
@@ -67,8 +73,14 @@ void tx_modulate(const char* const data, unsigned len) {
     char scheme = PSK_2;
     for (int i=0; i<SCHEME_BITS; i++) {
         int bit = (scheme>>i) & 1; // lsb first
-        for (int j=0; j<SAMPLES_PER_BIT; j++) {
+        for (int j=0; j<MULTIPATH_MITIG; j++) {
+            q.write(COS[j & 7] * filteri(0));
+        }
+        for (int j=0; j<SAMPLES_PER_SYM-2*MULTIPATH_MITIG; j++) {
             q.write(COS[j & 7] * filteri(1-2*bit));
+        }
+        for (int j=0; j<MULTIPATH_MITIG; j++) {
+            q.write(COS[j & 7] * filteri(0));
         }
     }
 
@@ -76,8 +88,14 @@ void tx_modulate(const char* const data, unsigned len) {
     len &= ~((-1)<<LENGTH_BITS);
     for (int i=0; i<LENGTH_BITS; i++) {
         int bit = (len>>i) & 1; // lsb first
-        for (int j=0; j<SAMPLES_PER_BIT; j++) {
+        for (int j=0; j<MULTIPATH_MITIG; j++) {
+            q.write(COS[j & 7] * filteri(0));
+        }
+        for (int j=0; j<SAMPLES_PER_SYM-2*MULTIPATH_MITIG; j++) {
             q.write(COS[j & 7] * filteri(1-2*bit));
+        }
+        for (int j=0; j<MULTIPATH_MITIG; j++) {
+            q.write(COS[j & 7] * filteri(0));
         }
     }
 
@@ -85,13 +103,19 @@ void tx_modulate(const char* const data, unsigned len) {
     for (int i=0; i<len; i++) {
         for (int j=0; j<8; j++) {
             int bit = (data[i]>>j) & 1; // lsb first
-            for (int k=0; k<SAMPLES_PER_BIT; k++) {
+            for (int k=0; k<MULTIPATH_MITIG; k++) {
+                q.write(COS[k & 7] * filteri(0));
+            }
+            for (int k=0; k<SAMPLES_PER_SYM-2*MULTIPATH_MITIG; k++) {
                 q.write(COS[k & 7] * filteri(1-2*bit));
+            }
+            for (int k=0; k<MULTIPATH_MITIG; k++) {
+                q.write(COS[k & 7] * filteri(0));
             }
         }
     }
 
-    // pick up remainders in the filteri
+    // pick up remainders in the filter
     for (int i=0; i<TX_BUF_DEPTH; i++) {
         q.write(COS[i & 7] * filteri(0));
     }
