@@ -90,7 +90,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             // continue;
 
             if (capture_thresh>1e-3) {
-                capture_thresh *= 384;
+                capture_thresh *= 240;
                 if (peaka[1]>capture_thresh && peaka[1]>=peaka[2] && peaka[1]>=peaka[0]) {
                     init_scale_rotate(peaka[1], peaki[1], peakq[1]);
                     break;
