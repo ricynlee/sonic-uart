@@ -16,22 +16,15 @@ static const int CHIPS = sizeof(MSEQ)/sizeof(MSEQ[0]);
 
 // misc
 static const int SAMPLE_RATE = 48000;
-static const int MULTIPATH_MITIG = 32;  // 32 | 64 is allowed
+static const int MULTIPATH_MITIG = 64;  // 32 | 64 is allowed
 static const int SAMPLES_PER_CHIP = 256;
 static const int DOWN_SAMPLE = SAMPLES_PER_CHIP/16;
 static const int SAMPLES_PER_SYM = 256;
 static const float TX_PA = 1.5;
-static const int LENGTH_BITS = 7;
-static const int SCHEME_BITS = 1;
+static const int LENGTH_BITS = 6;
 static const int TX_BUF_DEPTH = 512;    // common divisor of (SAMPLES_PER_CHIP*(CHIPS+1)) and samples per byte (2 symbols minimum can be a byte)
                                         // >ORDER
                                         // cannot be too small (e.g., <256) in case of overflow/underflow
-
-// modem scheme
-enum {
-    PSK_2,
-    PSK_4
-};
 
 // sample
 typedef struct {

@@ -109,25 +109,6 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         filterq(x * -SIN[i & 7] / 2);
     }
 
-    // digital modem scheme
-    char scheme = 0;
-    for (int i=0; i<SCHEME_BITS; i++) {
-        float consteli = 0;
-        float constelq = 0;
-        for (int j=0; j<SAMPLES_PER_SYM; j++) {
-            float x = q.read();
-            consteli += filteri(x * COS[j & 7] / 2);
-            constelq += filterq(x * -SIN[j & 7] / 2);
-        }
-        scale_rotate(consteli, constelq);
-
-        if (consteli > 0) {
-            scheme &= ~(1<<i); // 1'b0
-        } else {
-            scheme |= (1<<i); // 1'b1
-        }
-    }
-
     // packet length
     unsigned len = 0;
     for (int i=0; i<LENGTH_BITS; i++) {
