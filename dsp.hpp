@@ -16,10 +16,10 @@ static const int CHIPS = sizeof(MSEQ)/sizeof(MSEQ[0]);
 
 // misc
 static const int SAMPLE_RATE = 48000;
-static const int MULTIPATH_MITIG = 64;  // 32 | 64 is allowed
-static const int SAMPLES_PER_CHIP = 256;
+static const int MULTIPATH_MITIG = 128;  // 32 | 64 is allowed
+static const int SAMPLES_PER_CHIP = 512;
 static const int DOWN_SAMPLE = SAMPLES_PER_CHIP/16;
-static const int SAMPLES_PER_SYM = 256;
+static const int SAMPLES_PER_SYM = 1024;
 static const float TX_PA = 1.5;
 static const int LENGTH_BITS = 7;
 static const int SCHEME_BITS = 1;
