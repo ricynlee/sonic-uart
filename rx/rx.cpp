@@ -8,24 +8,23 @@ using namespace std;
 
 static const int RX_BUF_DEPTH = 1024;
 
-inline float amp(float xi, float xq) {
-    return sqrt(xi*xi+xq*xq);
+inline float amp(sample_t x) {
+    return sqrt(x.I*x.I+x.Q*x.Q);
 }
 
-float srx, sry; // for constellation scaling and rotating
+sample_t sr; // for constellation scaling and rotating
 
-void init_scale_rotate(float sra, float sri, float srq) {
-    sra *= sra;
-    sra = sra * (SAMPLES_PER_SYM-2*MULTIPATH_MITIG) / ((SAMPLES_PER_CHIP-2*MULTIPATH_MITIG)*CHIPS/DOWN_SAMPLE);
-    srx = sri/sra;
-    sry = srq/sra;
+void init_scale_rotate(sample_t x) {
+    float sra2 = x.I*x.I+x.Q*x.Q;
+    sr.I = x.I/sra2;
+    sr.Q = x.Q/sra2;
 }
 
-inline void scale_rotate(float& xi, float& xq) {
-    float ini = xi;
-    float inq = xq;
-    xi = ini*srx + inq*sry;
-    xq = inq*srx - ini*sry;
+inline void scale_rotate(sample_t& x) {
+    sample_t xi = x;
+    sample_t& xo = x;
+    xo.I = xi.I*sr.I + xi.Q*sr.Q;
+    xo.Q = xi.Q*sr.I - xi.I*sr.Q;
 }
 
 fifo<float> q; // inter-thread data queue
@@ -36,7 +35,7 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
     sample_t* buf = (sample_t*) in_buf;
 
     for (int i=0; i<RX_BUF_DEPTH; i++) {
-        q.write(buf[i].left);
+        q.write(buf[i].L);
     }
 
     return 0;
@@ -47,55 +46,81 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         return;
     }
 
-    // listening for preamble
+    sample_t tmp;
+    int latency;
+
+    // background noise measuring
+    float noise_level = 0;
+    for (int j=0; j<ACCUMUL_TIMES*4; j++) {
+        sample_t noise = {0, 0};
+        for (int i=0; i<ACCUMUL_SAMPLES; i++) {
+            float x = q.read();
+            tmp = filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+            noise.I += tmp.I;
+            noise.Q += tmp.Q;
+        }
+        noise_level += amp(noise);
+    }
+    noise_level /= ACCUMUL_SAMPLES;
+
+    // listening for preamble0
     {
-        float wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE] = {0};
-        float winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE] = {0};
-        float peaki[3];
-        float peakq[3];
+        sample_t win[ACCUMUL_TIMES*CHIPS] = {{0}};
         float peaka[3] = {0};
 
         while (true) {
-            for (int i=0; i<CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1; i++) {
-                wini[i] = wini[i+1];
-                winq[i] = winq[i+1];
+            // shifting window (match filter)
+            for (int i=0; i<ACCUMUL_TIMES*CHIPS-1; i++) {
+                win[i] = win[i+1];
             }
-            wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] = 0;
-            winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] = 0;
+            win[ACCUMUL_TIMES*CHIPS-1] = (sample_t){0, 0};
 
-            for (int i=0; i<DOWN_SAMPLE; i++) {
+            for (int i=0; i<ACCUMUL_SAMPLES; i++) {
                 float x = q.read();
-                wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] += filteri(x * COS[i & 7] / 2);
-                winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] += filterq(x * -SIN[i & 7] / 2);
+                tmp = filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+                win[ACCUMUL_TIMES*CHIPS-1].I += tmp.I;
+                win[ACCUMUL_TIMES*CHIPS-1].Q += tmp.Q;
             }
-            wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] /= DOWN_SAMPLE;
-            winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] /= DOWN_SAMPLE;
+            win[ACCUMUL_TIMES*CHIPS-1].I /= ACCUMUL_SAMPLES;
+            win[ACCUMUL_TIMES*CHIPS-1].Q /= ACCUMUL_SAMPLES;
 
-            // cout << wini[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] << ' ' << winq[CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE-1] << ' ';
+            // capture threshold (by amplitude)
+            float capture_thresh = 0;
+            for (int i=0; i<ACCUMUL_TIMES*4; i++) {
+                capture_thresh += amp(win[(CHIPS-4)*ACCUMUL_TIMES+i]);
+            }
+            capture_thresh = (capture_thresh-noise_level)*(CHIPS*0.5/4); // 4 past chips scanned
 
-            peaki[0] = peaki[1]; peaki[1] = peaki[2]; peaki[2] = 0;
-            peakq[0] = peakq[1]; peakq[1] = peakq[2]; peakq[2] = 0;
-            peaka[0] = peaka[1]; peaka[1] = peaka[2];
+            // cout << capture_thresh << ' ';
+
+            // capture
+            tmp = (sample_t){0, 0};
             for (int i=0; i<CHIPS; i++) {
-                for (int j=MULTIPATH_MITIG/DOWN_SAMPLE; j<(SAMPLES_PER_CHIP-MULTIPATH_MITIG)/DOWN_SAMPLE; j++) {
-                    peaki[2] += wini[i*SAMPLES_PER_CHIP/DOWN_SAMPLE+j] * (1-2*MSEQ[i]);
-                    peakq[2] += winq[i*SAMPLES_PER_CHIP/DOWN_SAMPLE+j] * (1-2*MSEQ[i]);
+                for (int j=CHIP_PREFIX/ACCUMUL_SAMPLES; j<(CHIP_PREFIX+CHIP_BODY)/ACCUMUL_SAMPLES; j++) {
+                    tmp.I += win[i*ACCUMUL_TIMES+j].I * (1-2*MSEQ[i]);
+                    tmp.Q += win[i*ACCUMUL_TIMES+j].Q * (1-2*MSEQ[i]);
                 }
             }
-            peaka[2] = amp(peaki[2], peakq[2]);
+            peaka[0] = peaka[1];
+            peaka[1] = peaka[2];
+            peaka[2] = amp(tmp);
 
-            float capture_thresh = 0;
-            for (int i=CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE/10*9; i<CHIPS*SAMPLES_PER_CHIP/DOWN_SAMPLE; i++) {
-                capture_thresh += amp(wini[i], winq[i]);
-            }
-
-            // cout << peaka[2] << ' ' << capture_thresh << endl;
+            // cout << peaka[2] << endl;
             // continue;
 
-            if (capture_thresh>1) { // this parameter is subject to laptop models (0.1 for my laptop)
-                capture_thresh *= 3; // this parameter is subject to environment (5 for my bedroom)
-                if (peaka[1]>capture_thresh && peaka[1]>=peaka[2] && peaka[1]>=peaka[0]) {
-                    init_scale_rotate(peaka[1], peaki[1], peakq[1]);
+            if (capture_thresh < 16) {
+                continue;
+            }
+            if (peaka[1]>peaka[2] && peaka[1]>=peaka[0] && peaka[0]>=peaka[2]) {
+                float peaka_est = peaka[1] + (peaka[0]-peaka[2])/2;
+                latency = (int)(((peaka_est-peaka[0])/(peaka[1]-peaka[2])-1)*ACCUMUL_SAMPLES);
+                if (capture_thresh<peaka_est) {
+                    break;
+                }
+            } else if (peaka[1]>peaka[0] && peaka[1]>=peaka[2] && peaka[0]<=peaka[2]) {
+                float peaka_est = peaka[1] - (peaka[0]-peaka[2])/2;
+                latency = (int)((peaka_est-peaka[1])/(peaka[1]-peaka[0])*ACCUMUL_SAMPLES);
+                if (capture_thresh<peaka_est) {
                     break;
                 }
             }
@@ -103,29 +128,56 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     }
 
     // skip bubble
-    for (int i=0; i<SAMPLES_PER_CHIP-DOWN_SAMPLE; i++) {
+    for (int i=0; i<ACCUMUL_SAMPLES*(ACCUMUL_TIMES-1)+latency; i++) {
         float x = q.read();
-        filteri(x * COS[i & 7] / 2);
-        filterq(x * -SIN[i & 7] / 2);
+        filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+    }
+
+    // preamble1 & amplitude/phase aligning
+    for (int i=0; i<SYMBOL_CYCLIC_PREFIX; i++) {
+        float x = q.read();
+        filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+    }
+    sample_t sr = (sample_t){0, 0};
+    for (int i=0; i<SYMBOL_BODY; i++) {
+        float x = q.read();
+        tmp = filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+        sr.I += tmp.I;
+        sr.Q += tmp.Q;
+    }
+    sr.I /= (SYMBOL_BODY/128);
+    sr.Q /= (SYMBOL_BODY/128);
+    init_scale_rotate(sr);
+    for (int i=0; i<SYMBOL_CYCLIC_SUFFIX; i++) {
+        float x = q.read();
+        filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
     }
 
     // packet length
     unsigned len = 0;
-    for (int i=0; i<LENGTH_BITS; i++) {
-        float consteli = 0;
-        float constelq = 0;
-        for (int j=0; j<SAMPLES_PER_SYM; j++) {
+    for (int j=0; j<LENGTH_BITS; j++) {
+        for (int i=0; i<SYMBOL_CYCLIC_PREFIX; i++) {
             float x = q.read();
-            consteli += filteri(x * COS[j & 7] / 2);
-            constelq += filterq(x * -SIN[j & 7] / 2);
+            filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
         }
-        scale_rotate(consteli, constelq);
+        sample_t constel = (sample_t){0, 0};
+        for (int i=0; i<SYMBOL_BODY; i++) {
+            float x = q.read();
+            tmp = filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+            constel.I += tmp.I;
+            constel.Q += tmp.Q;
+        }
+        constel.I /= (SYMBOL_BODY/128);
+        constel.Q /= (SYMBOL_BODY/128);
+        scale_rotate(constel);
+        for (int i=0; i<SYMBOL_CYCLIC_SUFFIX; i++) {
+            float x = q.read();
+            filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+        }
 
-        if (consteli > 0) {
-            len &= ~(1<<i); // 1'b0
-        } else {
-            len |= (1<<i); // 1'b1
-        }
+        cout << constel.I << ' ' << constel.Q << endl;
+
+        len |= ((constel.I<=0)<<j);
     }
 
     if (len<len_limit) {
@@ -133,39 +185,53 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     }
 
     // data processing
-    for (unsigned i=0; i<len; i++) {
+    for (unsigned k=0; k<len; k++) {
         char octet = 0;
-
-        // only 2psk is implemented
-        for (int j=0; j<8; j++) {
-            float consteli = 0;
-            float constelq = 0;
-            for (int k=0; k<SAMPLES_PER_SYM; k++) {
+        for (int j=0; j<8; j+=MODEM) {
+            for (int i=0; i<SYMBOL_CYCLIC_PREFIX; i++) {
                 float x = q.read();
-                consteli += filteri(x * COS[k & 7] / 2);
-                constelq += filterq(x * -SIN[k & 7] / 2);
+                filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
             }
-            scale_rotate(consteli, constelq);
-
-            // cout << consteli << ' ' << constelq << endl;
-
-            if (consteli > 0) {
-                octet &= ~(1<<j); // 1'b0
-            } else {
-                octet |= (1<<j); // 1'b1
+            sample_t constel = (sample_t){0, 0};
+            for (int i=0; i<SYMBOL_BODY; i++) {
+                float x = q.read();
+                tmp = filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+                constel.I += tmp.I;
+                constel.Q += tmp.Q;
             }
+            constel.I /= (SYMBOL_BODY/128);
+            constel.Q /= (SYMBOL_BODY/128);
+            scale_rotate(constel);
+            for (int i=0; i<SYMBOL_CYCLIC_SUFFIX; i++) {
+                float x = q.read();
+                filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+            }
+
+            cout << constel.I << ' ' << constel.Q << endl;
+
+            unsigned char sym; // lsb first
+            switch (MODEM) {
+                default: // PSK2
+                    sym = constel.I<0;
+                    break;
+                case PSK4:
+                    sym = (constel.I<0) | ((constel.Q<=0)<<1);
+                    break;
+                case QAM16:
+                    sym = (unsigned char)((0.75-constel.I)*2 + 0.5) | ((unsigned char)((0.75-constel.Q)*2 + 0.5)<<2);
+            }
+            octet |= (sym<<j);
         }
 
-        if (i<len_limit) {
-            data[i] = octet;
+        if (k<len_limit) {
+            data[k] = octet;
         }
     }
 
     // protective margin
-    for (int i=0; i<RX_BUF_DEPTH; i++) {
+    for (int i=0; i<TX_BUF_DEPTH; i++) {
         float x = q.read();
-        filteri(x * COS[i & 7] / 2);
-        filterq(x * -SIN[i & 7] / 2);
+        filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
     }
 }
 
@@ -184,7 +250,7 @@ void ui(void) {
             cerr << "Goodbye" << endl;
             break;
         } else {
-            cout << s << endl;
+            // cout << s << endl;
         }
     }
 }

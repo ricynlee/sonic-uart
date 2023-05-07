@@ -1,6 +1,5 @@
 #include "RtAudio.h"
 #include <iostream>
-#include <cstring>
 #include <thread>
 #include "fifo.hpp"
 #include "dsp.hpp"
@@ -17,29 +16,29 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
     sample_t* buffer = (sample_t*) out_buf;
 
     static bool wearing = false;
-    static bool right = false;
+    static bool R = false;
     unsigned fifo_size = q.size();
 
     if (fifo_size<TX_BUF_DEPTH) {
         if ( /*prior*/ wearing==true ) {
-            right = !right;
+            R = !R;
         }
         wearing = false;
         for (int i=0; i<TX_BUF_DEPTH; i++) {
-            buffer[i].right = 0;
-            buffer[i].left = 0;
+            buffer[i].R = 0;
+            buffer[i].L = 0;
         }
-    } else if (right) {
+    } else if (R) {
         wearing = true;
         for (int i=0; i<TX_BUF_DEPTH; i++) {
-            buffer[i].right = q.read();
-            buffer[i].left = 0;
+            buffer[i].R = q.read();
+            buffer[i].L = 0;
         }
-    } else /* !right */ {
+    } else /* !R */ {
         wearing = true;
         for (int i=0; i<TX_BUF_DEPTH; i++) {
-            buffer[i].right = 0;
-            buffer[i].left = q.read();
+            buffer[i].R = 0;
+            buffer[i].L = q.read();
         }
     }
 
@@ -51,58 +50,88 @@ void tx_modulate(const char* const data, unsigned len) {
         return;
     }
 
-    // preamble
-    for (int i=0; i<CHIPS; i++) {
-        for (int j=0; j<MULTIPATH_MITIG; j++) {
-            q.write(COS[j & 7] * filteri(0));
+    sample_t constel, sample;
+
+    // preamble0
+    for (int j=0; j<CHIPS; j++) {
+        constel.I = 0;
+        constel.Q = 0;
+        for (int i=0; i<CHIP_PREFIX; i++) {
+            sample = filter(constel);
+            q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
         }
-        for (int j=0; j<SAMPLES_PER_CHIP-2*MULTIPATH_MITIG; j++) {
-            q.write(COS[j & 7] * filteri(1-2*MSEQ[i]));
+        constel.I = 1-2*MSEQ[j];
+        constel.Q = 0;
+        for (int i=0; i<CHIP_BODY; i++) {
+            sample= filter(constel);
+            q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
         }
-        for (int j=0; j<MULTIPATH_MITIG; j++) {
-            q.write(COS[j & 7] * filteri(0));
+        constel.I = 0;
+        constel.Q = 0;
+        for (int i=0; i<CHIP_SUFFIX; i++) {
+            sample= filter(constel);
+            q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
         }
     }
 
     // bubble
-    for (int i=0; i<SAMPLES_PER_CHIP; i++) {
-        q.write(COS[i & 7] * filteri(0));
+    constel.I = 0;
+    constel.Q = 0;
+    for (int i=0; i<(CHIP_PREFIX+CHIP_BODY+CHIP_SUFFIX); i++) {
+        sample= filter(constel);
+        q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
+    }
+
+    // preamble1 (channel-measuring symbol)
+    constel.I = 1;
+    constel.Q = 0;
+    for (int i=0; i<(SYMBOL_CYCLIC_PREFIX+SYMBOL_BODY+SYMBOL_CYCLIC_SUFFIX); i++) {
+        sample= filter(constel);
+        q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
     }
 
     // frame length in octets
     len &= ~((-1)<<LENGTH_BITS);
-    for (int i=0; i<LENGTH_BITS; i++) {
-        int bit = (len>>i) & 1; // lsb first
-        for (int j=0; j<MULTIPATH_MITIG; j++) {
-            q.write(COS[j & 7] * filteri(0));
-        }
-        for (int j=0; j<SAMPLES_PER_SYM-2*MULTIPATH_MITIG; j++) {
-            q.write(COS[j & 7] * filteri(1-2*bit));
-        }
-        for (int j=0; j<MULTIPATH_MITIG; j++) {
-            q.write(COS[j & 7] * filteri(0));
+    for (int j=0; j<LENGTH_BITS; j++) {
+        int bit = (len>>j) & 1; // lsb first
+        constel.I = (1-2*bit);
+        constel.Q = 0;
+        for (int i=0; i<(SYMBOL_CYCLIC_PREFIX+SYMBOL_BODY+SYMBOL_CYCLIC_SUFFIX); i++) {
+            sample= filter(constel);
+            q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
         }
     }
 
     // frame body
-    for (int i=0; i<len; i++) {
-        for (int j=0; j<8; j++) {
-            int bit = (data[i]>>j) & 1; // lsb first
-            for (int k=0; k<MULTIPATH_MITIG; k++) {
-                q.write(COS[k & 7] * filteri(0));
+    for (unsigned k=0; k<len; k++) {
+        for (int j=0; j<8; j+=MODEM) {
+            unsigned char sym = (data[k]>>j) & ((1<<MODEM)-1); // lsb first
+            switch (MODEM) {
+                default: // PSK2
+                    constel.I = (1-2*sym);
+                    constel.Q = 0;
+                    break;
+                case PSK4:
+                    constel.I = 0.75 - 1.5*(sym & 1);
+                    constel.Q = 0.75 - 1.5*(sym >> 1);
+                    break;
+                case QAM16:
+                    constel.I = 0.75 - 0.5*(sym & 3);
+                    constel.Q = 0.75 - 0.5*(sym >> 2);
             }
-            for (int k=0; k<SAMPLES_PER_SYM-2*MULTIPATH_MITIG; k++) {
-                q.write(COS[k & 7] * filteri(1-2*bit));
-            }
-            for (int k=0; k<MULTIPATH_MITIG; k++) {
-                q.write(COS[k & 7] * filteri(0));
+            for (int i=0; i<(SYMBOL_CYCLIC_PREFIX+SYMBOL_BODY+SYMBOL_CYCLIC_SUFFIX); i++) {
+                sample= filter(constel);
+                q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
             }
         }
     }
 
-    // pick up remainders in the filter
+    // pick up remainders in the filter & protective margin
+    constel.I = 0;
+    constel.Q = 0;
     for (int i=0; i<TX_BUF_DEPTH; i++) {
-        q.write(COS[i & 7] * filteri(0));
+        sample= filter(constel);
+        q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
     }
 }
 
@@ -132,7 +161,7 @@ int main()
     RtAudio dev;
     if (dev.getDeviceCount() < 1) {
         cerr << "No device!" << endl;
-        return false;
+        return (-1);
     }
     RtAudio::StreamParameters parameters;
     parameters.deviceId = dev.getDefaultOutputDevice();
