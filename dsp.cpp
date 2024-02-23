@@ -1,4 +1,5 @@
 #include <cstring>
+#include <immintrin.h>
 #include "dsp.hpp"
 
 using namespace std;
@@ -29,7 +30,7 @@ void init_filter(void) {
 #endif
 }
 
-sample_t filter(sample_t in) {
+sample_t filter(const sample_t& in) {
     sample_t out;
 
     static int i = 0;

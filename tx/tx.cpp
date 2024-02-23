@@ -1,8 +1,12 @@
 #include "RtAudio.h"
 #include <iostream>
 #include <thread>
+#include <cmath>
 #include "fifo.hpp"
 #include "dsp.hpp"
+
+static float SIN[8]; // {0, 0.353553390593274, -0.5, 0.353553390593274, 0, -0.353553390593273, 0.5, -0.353553390593274}; // 18kHz
+static float COS[8]; // {0.5, -0.353553390593274, 0, 0.353553390593274, -0.5, 0.353553390593275, 0, -0.353553390593274}; // 18kHz
 
 using namespace std;
 
@@ -52,42 +56,22 @@ void tx_modulate(const char* const data, unsigned len) {
 
     sample_t constel, sample;
 
-    // preamble0
+    // preamble
     for (int j=0; j<CHIPS; j++) {
-        constel.I = 0;
-        constel.Q = 0;
-        for (int i=0; i<CHIP_PREFIX; i++) {
-            sample = filter(constel);
-            q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
-        }
         constel.I = 1-2*MSEQ[j];
         constel.Q = 0;
         for (int i=0; i<CHIP_BODY; i++) {
-            sample= filter(constel);
-            q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
-        }
-        constel.I = 0;
-        constel.Q = 0;
-        for (int i=0; i<CHIP_SUFFIX; i++) {
-            sample= filter(constel);
-            q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
+            sample = filter(constel);
+            q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
         }
     }
 
-    // bubble
+    // bubble: avoid interference between preamble and payload
     constel.I = 0;
     constel.Q = 0;
-    for (int i=0; i<(CHIP_PREFIX+CHIP_BODY+CHIP_SUFFIX); i++) {
-        sample= filter(constel);
-        q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
-    }
-
-    // preamble1 (channel-measuring symbol)
-    constel.I = 1;
-    constel.Q = 0;
-    for (int i=0; i<(SYMBOL_CYCLIC_PREFIX+SYMBOL_BODY+SYMBOL_CYCLIC_SUFFIX); i++) {
-        sample= filter(constel);
-        q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
+    for (int i=0; i<CHIP_BODY; i++) {
+        sample = filter(constel);
+        q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 
     // frame length in octets
@@ -96,9 +80,9 @@ void tx_modulate(const char* const data, unsigned len) {
         int bit = (len>>j) & 1; // lsb first
         constel.I = (1-2*bit);
         constel.Q = 0;
-        for (int i=0; i<(SYMBOL_CYCLIC_PREFIX+SYMBOL_BODY+SYMBOL_CYCLIC_SUFFIX); i++) {
-            sample= filter(constel);
-            q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
+        for (int i=0; i<SYMBOL_BODY; i++) {
+            sample = filter(constel);
+            q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
         }
     }
 
@@ -107,11 +91,11 @@ void tx_modulate(const char* const data, unsigned len) {
         for (int j=0; j<8; j+=MODEM) {
             unsigned char sym = (data[k]>>j) & ((1<<MODEM)-1); // lsb first
             switch (MODEM) {
-                default: // PSK2
+                default /* BPSK */:
                     constel.I = (1-2*sym);
                     constel.Q = 0;
                     break;
-                case PSK4:
+                case QPSK:
                     constel.I = 0.75 - 1.5*(sym & 1);
                     constel.Q = 0.75 - 1.5*(sym >> 1);
                     break;
@@ -119,9 +103,9 @@ void tx_modulate(const char* const data, unsigned len) {
                     constel.I = 0.75 - 0.5*(sym & 3);
                     constel.Q = 0.75 - 0.5*(sym >> 2);
             }
-            for (int i=0; i<(SYMBOL_CYCLIC_PREFIX+SYMBOL_BODY+SYMBOL_CYCLIC_SUFFIX); i++) {
-                sample= filter(constel);
-                q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
+            for (int i=0; i<SYMBOL_BODY; i++) {
+                sample = filter(constel);
+                q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
             }
         }
     }
@@ -130,13 +114,19 @@ void tx_modulate(const char* const data, unsigned len) {
     constel.I = 0;
     constel.Q = 0;
     for (int i=0; i<TX_BUF_DEPTH; i++) {
-        sample= filter(constel);
-        q.write(COS[i&7] * sample.I - SIN[i&7] * sample.Q);
+        sample = filter(constel);
+        q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 }
 
 void ui(void) {
     init_filter();
+
+    // init local oscillator lut
+    for (int i=0; i<sizeof(SIN)/sizeof(SIN[0]); i++) {
+        SIN[i] = sin(2*PI*CARRIER_FRQ*i/SAMPLE_RATE);
+        COS[i] = cos(2*PI*CARRIER_FRQ*i/SAMPLE_RATE);
+    }
 
     string s;
     while (true) {
