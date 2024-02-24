@@ -146,8 +146,7 @@ void ui(void) {
     }
 }
 
-int main()
-{
+int main() {
     RtAudio dev;
     if (dev.getDeviceCount() < 1) {
         cerr << "No device!" << endl;

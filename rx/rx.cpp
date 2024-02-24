@@ -46,16 +46,19 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         return;
     }
 
+    double lo;
+    double phi = 0;
     sample_t tmp;
     int latency;
+
+    auto mix = [&phi](float x){return (sample_t){cos(phi)*x, -sin(phi)*x}};
 
     // background noise measuring
     float noise_level = 0;
     for (int j=0; j<ACCUMUL_TIMES*4; j++) {
         sample_t noise = {0, 0};
         for (int i=0; i<ACCUMUL_SAMPLES; i++) {
-            float x = q.read();
-            tmp = filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+            tmp = filter(mix(q.read()));
             noise.I += tmp.I;
             noise.Q += tmp.Q;
         }
@@ -63,7 +66,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     }
     noise_level /= ACCUMUL_SAMPLES;
 
-    // listening for preamble0
+    // listening for preamble
     {
         sample_t win[ACCUMUL_TIMES*CHIPS] = {{0}};
         float peaka[3] = {0};
@@ -75,12 +78,24 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             }
             win[ACCUMUL_TIMES*CHIPS-1] = (sample_t){0, 0};
 
-            for (int i=0; i<ACCUMUL_SAMPLES; i++) {
-                float x = q.read();
-                tmp = filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
-                win[ACCUMUL_TIMES*CHIPS-1].I += tmp.I;
-                win[ACCUMUL_TIMES*CHIPS-1].Q += tmp.Q;
+            for (int j=0; j<ACCUMUL_SAMPLES/16; j++) {
+                sample_t accum = {0, 0};
+                for (int i=0; i<16; i++) {
+                    tmp = filter(mix(q.read()));
+                    accum.I += tmp.I;
+                    accum.Q += tmp.Q;
+                }
+
+                costas(accum);
+
+                win[ACCUMUL_TIMES*CHIPS-1].I += accum.I;
+                win[ACCUMUL_TIMES*CHIPS-1].Q += accum.Q;
             }
+
+            extern float LO;
+            cout << "LO=" << LO << endl;
+            continue;
+
             win[ACCUMUL_TIMES*CHIPS-1].I /= ACCUMUL_SAMPLES;
             win[ACCUMUL_TIMES*CHIPS-1].Q /= ACCUMUL_SAMPLES;
 
@@ -129,19 +144,16 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
     // skip bubble
     for (int i=0; i<ACCUMUL_SAMPLES*(ACCUMUL_TIMES-1)+latency; i++) {
-        float x = q.read();
-        filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+        filter(mix(q.read()));
     }
 
     // preamble1 & amplitude/phase aligning
     for (int i=0; i<SYMBOL_CYCLIC_PREFIX; i++) {
-        float x = q.read();
-        filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+        filter(mix(q.read()));
     }
     sample_t sr = (sample_t){0, 0};
     for (int i=0; i<SYMBOL_BODY; i++) {
-        float x = q.read();
-        tmp = filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+        tmp = filter(mix(q.read()));
         sr.I += tmp.I;
         sr.Q += tmp.Q;
     }
@@ -149,21 +161,18 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     sr.Q /= (SYMBOL_BODY/128);
     init_scale_rotate(sr);
     for (int i=0; i<SYMBOL_CYCLIC_SUFFIX; i++) {
-        float x = q.read();
-        filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+        filter(mix(q.read()));
     }
 
     // packet length
     unsigned len = 0;
     for (int j=0; j<LENGTH_BITS; j++) {
         for (int i=0; i<SYMBOL_CYCLIC_PREFIX; i++) {
-            float x = q.read();
-            filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+            filter(mix(q.read()));
         }
         sample_t constel = (sample_t){0, 0};
         for (int i=0; i<SYMBOL_BODY; i++) {
-            float x = q.read();
-            tmp = filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+            tmp = filter(mix(q.read()));
             constel.I += tmp.I;
             constel.Q += tmp.Q;
         }
@@ -171,8 +180,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         constel.Q /= (SYMBOL_BODY/128);
         scale_rotate(constel);
         for (int i=0; i<SYMBOL_CYCLIC_SUFFIX; i++) {
-            float x = q.read();
-            filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+            filter(mix(q.read()));
         }
 
         cout << constel.I << ' ' << constel.Q << endl;
@@ -189,13 +197,11 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         char octet = 0;
         for (int j=0; j<8; j+=MODEM) {
             for (int i=0; i<SYMBOL_CYCLIC_PREFIX; i++) {
-                float x = q.read();
-                filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+                filter(mix(q.read()));
             }
             sample_t constel = (sample_t){0, 0};
             for (int i=0; i<SYMBOL_BODY; i++) {
-                float x = q.read();
-                tmp = filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+                tmp = filter(mix(q.read()));
                 constel.I += tmp.I;
                 constel.Q += tmp.Q;
             }
@@ -203,8 +209,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             constel.Q /= (SYMBOL_BODY/128);
             scale_rotate(constel);
             for (int i=0; i<SYMBOL_CYCLIC_SUFFIX; i++) {
-                float x = q.read();
-                filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+                filter(mix(q.read()));
             }
 
             cout << constel.I << ' ' << constel.Q << endl;
@@ -230,8 +235,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
     // protective margin
     for (int i=0; i<TX_BUF_DEPTH; i++) {
-        float x = q.read();
-        filter((sample_t){x*COS[i&7], x*-SIN[i&7]});
+        filter(mix(q.read()));
     }
 }
 
