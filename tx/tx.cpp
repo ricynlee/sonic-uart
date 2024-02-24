@@ -57,19 +57,17 @@ void tx_modulate(const char* const data, unsigned len) {
     sample_t constel, sample;
 
     // preamble
-    for (int j=0; j<CHIPS; j++) {
-        constel.I = 1-2*MSEQ[j];
+    for (int i=0; i<CHIRP_BODY; i++) {
+        constel.I = chirp(i, false);
         constel.Q = 0;
-        for (int i=0; i<CHIP_BODY; i++) {
-            sample = filter(constel);
-            q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
-        }
+        sample = filter(constel);
+        q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 
-    // bubble: avoid interference between preamble and payload
+    // bubble: avoid payload-preamble interference
     constel.I = 0;
     constel.Q = 0;
-    for (int i=0; i<CHIP_BODY; i++) {
+    for (int i=0; i<BUBBLE_BODY; i++) {
         sample = filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }

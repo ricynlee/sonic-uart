@@ -1,10 +1,14 @@
 #include <cstring>
 #include <immintrin.h>
+#include <cmath>
 #include "dsp.hpp"
 
 using namespace std;
 
 // filter implementation
+static const float B[128] = LPF;
+static const int ORDER = sizeof(B)/sizeof(B[0])-1;
+
 #if defined(__AVX__)
 typedef union {
     __m256  d;
@@ -56,4 +60,11 @@ sample_t filter(const sample_t& in) {
 
     return out;
 #endif
+}
+
+// chirp generator
+float chirp(size_t index, bool decimated) {
+    const double u = 1200. * SAMPLE_RATE / CHIRP_BODY / 2; 
+    double t = index*(double)(decimated ? DECIMATION : 1)/SAMPLE_RATE;
+    return (float)cos(2*PI*(-600*t+u*t*t));
 }
