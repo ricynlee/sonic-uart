@@ -3,9 +3,8 @@ clear;
 
 snr = 0;
 
-decim = 8; % decimation rate
-fs = 48e3/decim;
-n = 16384/decim;
+fs = 48e3;
+n = 1024;
 t = (0:n-1)/fs;
 u0 = 1200/(n/fs); % bandwidth = 1200Hz
 
