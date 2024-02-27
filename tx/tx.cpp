@@ -7,6 +7,9 @@
 
 static float SIN[8]; // {0, 0.353553390593274, -0.5, 0.353553390593274, 0, -0.353553390593273, 0.5, -0.353553390593274}; // 18kHz
 static float COS[8]; // {0.5, -0.353553390593274, 0, 0.353553390593274, -0.5, 0.353553390593275, 0, -0.353553390593274}; // 18kHz
+// filter implementation
+static const float B[128] = LPF;
+static const int ORDER = sizeof(B)/sizeof(B[0])-1;
 
 using namespace std;
 
@@ -118,10 +121,9 @@ void tx_modulate(const char* const data, unsigned len) {
 }
 
 void ui(void) {
-    init_filter();
-
+ 
     // init local oscillator lut
-    for (int i=0; i<sizeof(SIN)/sizeof(SIN[0]); i++) {
+    for (int i=0; i<(int)(sizeof(SIN)/sizeof(SIN[0])); i++) {
         SIN[i] = sin(2*PI*CARRIER_FRQ*i/SAMPLE_RATE);
         COS[i] = cos(2*PI*CARRIER_FRQ*i/SAMPLE_RATE);
     }

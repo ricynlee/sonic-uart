@@ -45,6 +45,13 @@ typedef struct {
 } sample_t;
 
 // declarations
-void init_filter(void);
-sample_t filter(const sample_t&);
+class fir_filter {
+public:
+    fir_filter(const float* const, int);
+    ~fir_filter();
+    sample_t filter(const sample_t&);
+private:
+    void* data;
+};
+
 float chirp(size_t, bool);

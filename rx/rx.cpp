@@ -41,32 +41,50 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
     return 0;
 }
 
+float chirpseq[CHIRP_BODY/DECIMATION];
+
 void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     if (!data || !len_limit) {
         return;
     }
 
-    double lo;
+    double lof = CARRIER_FRQ;
     double phi = 0;
     sample_t tmp;
     int latency;
 
-    auto mix = [&phi](float x){return (sample_t){cos(phi)*x, -sin(phi)*x}};
+    auto mix = [&phi, &lof](float x) {
+        sample_t mixed = (sample_t){(float)cos(phi)*x, (float)-sin(phi)*x};
+        phi = phi + 2*PI*lof/SAMPLE_RATE;
+        return mixed;
+    };
 
     // background noise measuring
-    float noise_level = 0;
-    for (int j=0; j<ACCUMUL_TIMES*4; j++) {
-        sample_t noise = {0, 0};
-        for (int i=0; i<ACCUMUL_SAMPLES; i++) {
-            tmp = filter(mix(q.read()));
-            noise.I += tmp.I;
-            noise.Q += tmp.Q;
-        }
-        noise_level += amp(noise);
+    for (int j=0; j<512; j++) {
+        q.read(); // make sure lpf is filled
     }
-    noise_level /= ACCUMUL_SAMPLES;
+
+    float noise_level = 0;
+    for (int i=0; i<NOISE_BODY; i++) {
+        tmp = filter(mix(q.read()));
+        noise_level += amp(tmp);
+    }
+
+    cerr << "noise level" << ' ' << noise_level << endl;
 
     // listening for preamble
+    while (true) {
+        float level = 0;
+        for (int i=0; i<NOISE_BODY*4; i++) {
+            tmp = filter(mix(q.read()));
+            level += amp(tmp);
+        }
+        level /= 4;
+
+        cerr << "level" << ' ' << level << endl;
+    }
+
+#if 0
     {
         sample_t win[ACCUMUL_TIMES*CHIPS] = {{0}};
         float peaka[3] = {0};
@@ -216,10 +234,10 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
             unsigned char sym; // lsb first
             switch (MODEM) {
-                default: // PSK2
+                default /* BPSK */:
                     sym = constel.I<0;
                     break;
-                case PSK4:
+                case QPSK:
                     sym = (constel.I<0) | ((constel.Q<=0)<<1);
                     break;
                 case QAM16:
@@ -237,10 +255,15 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     for (int i=0; i<TX_BUF_DEPTH; i++) {
         filter(mix(q.read()));
     }
+#endif
 }
 
 void ui(void) {
     init_filter();
+
+    for (int j=0; j<sizeof(chirpseq)/sizeof(chirpseq[0]); j++) {
+        chirpseq[j] = chirp(j, true);
+    }
 
     cerr << "Listening for data..." << endl;
     char s[256];

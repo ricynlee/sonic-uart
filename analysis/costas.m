@@ -6,11 +6,11 @@ fs = 48e3; % sampling freq
 
 snr = 0;
 
-n = 16384-4096;
+n = 16384-4096-512;
 
 init_beta = 0.22;
-init_fflim = 12;
-altcoef_beta = 0.9;
+init_fflim = 10.0;
+altcoef_beta = 0.80;
 altcoef_fflim = 0.95;
 
 alpha = 0.03; % phi ctrl
@@ -23,9 +23,7 @@ ord = length(lpf) - 1;
 t = (0:n-1)/fs;
 
 frqt = 18000 + 120*rand()-60;
-[pol, tmp] = filter(lpf, 1, mod(fix((0:n-1)/1024), 2)*2-1, zeros(1, ord));
-pol = [pol(round(ord/2):n), tmp(1:round(ord/2)-1)'];
-sig = pol.*cos(2*pi*frqt.*t + rand()*2*pi) + 10^(-snr/20)*randn(1, n)./sqrt(2);
+sig = cos(2*pi*frqt.*t + rand()*2*pi) + 10^(-snr/20)*randn(1, n)./sqrt(2);
 
 phir = zeros(1, n);
 frqr = [18000, zeros(1, n-1)];
@@ -37,7 +35,7 @@ bbq = zeros(1, n);
 mixi = zeros(1, ord+1);
 mixq = zeros(1, ord+1);
 
-frqr_sample = zeros(1, 16);
+frqr_sample = zeros(1, 8);
 lock = zeros(1, n);
 
 phie = zeros(1, n);
@@ -50,10 +48,10 @@ for i=1:n
 
     bbi(i) = sum(lpf.*mixi);
     bbq(i) = sum(lpf.*mixq);
-    
+
     phie(i) = bbi(i)*bbq(i)/sqrt(bbi(i)^2+bbq(i)^2);
-    
-    if mod(i, 300)==0
+
+    if mod(i, 512)==0
         frqr_sample = [frqr(i), frqr_sample(1:length(frqr_sample)-1)];
         lock(i) = (max(frqr_sample) - min(frqr_sample) < fflim);
         if lock(i)
@@ -68,7 +66,7 @@ for i=1:n
     elseif i>1
         lock(i) = lock(i-1);
     end
-    
+
     if i~=n
         frqr(i+1) = frqr(i) + beta*phie(i);
         phir(i+1) = phir(i) + 2*pi*frqr(i)/fs + alpha*phie(i);
@@ -79,10 +77,10 @@ clf;
 set(gcf, 'renderer', 'painters');
 
 subplot(1,3,1);
-title(sprintf('Freq following\nTx=%.2f Rx=%.2f', frqt, frqr(n)));
+title(sprintf('Freq following\nTx=%.2f \\Delta=%.2f', frqt, frqr(n)-frqt), 'interpreter', 'tex');
 hold on;
 plot(t, frqr, 'g', 'linesmooth', 'on');
-plot(t, frqt+lock*20, 'c');
+plot(t, frqt+lock*20-10, 'c');
 plot([t(1), t(n)], [frqt, frqt]);
 hold off;
 ylim([18000-100, 18000+100]);
