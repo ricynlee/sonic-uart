@@ -18,13 +18,9 @@
 #define CARRIER_BODY (16384-CHIRP_BODY*2-BUBBLE_BODY*3)
 
 // symbol
-#define SYMBOL_BODY 2048
+#define SYMBOL_BODY 256
 
-#define LENGTH_BITS 7
-
-#define TX_BUF_DEPTH 512    // common divisor of samples per chip and samples per symbol
-                            // >ORDER
-                            // cannot be too small (e.g., <256) in case of overflow/underflow
+#define LENGTH_BITS 8
 
 #define BPSK 1
 #define QPSK 2
@@ -47,8 +43,9 @@ typedef struct {
 // declarations
 class fir_filter {
 public:
-    fir_filter(const float* const, int);
+    fir_filter();
     ~fir_filter();
+    void init(const float* const, int);
     sample_t filter(const sample_t&);
 private:
     void* data;

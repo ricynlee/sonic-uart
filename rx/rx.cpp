@@ -6,26 +6,32 @@
 
 using namespace std;
 
-static const int RX_BUF_DEPTH = 1024;
+#define RX_BUF_DEPTH    1024
+#define CHIRP_DECIM     8
+
+float chirpseq[CHIRP_BODY/CHIRP_DECIM];
 
 inline float amp(sample_t x) {
     return sqrt(x.I*x.I+x.Q*x.Q);
 }
 
-sample_t sr; // for constellation scaling and rotating
+class scale_rotate {
+private:
+    sample_t factor; // for constellation scaling and rotating
+public:
+    void init(const sample_t& x) {
+        float sra2 = x.I*x.I+x.Q*x.Q;
+        factor.I = x.I/sra2;
+        factor.Q = x.Q/sra2;
+    }
 
-void init_scale_rotate(sample_t x) {
-    float sra2 = x.I*x.I+x.Q*x.Q;
-    sr.I = x.I/sra2;
-    sr.Q = x.Q/sra2;
-}
-
-inline void scale_rotate(sample_t& x) {
-    sample_t xi = x;
-    sample_t& xo = x;
-    xo.I = xi.I*sr.I + xi.Q*sr.Q;
-    xo.Q = xi.Q*sr.I - xi.I*sr.Q;
-}
+    void correct(sample_t& x) {
+        sample_t xi = x;
+        sample_t& xo = x;
+        xo.I = xi.I*factor.I + xi.Q*factor.Q;
+        xo.Q = xi.Q*factor.I - xi.I*factor.Q;
+    }
+};
 
 fifo<float> q; // inter-thread data queue
 
@@ -40,8 +46,6 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
 
     return 0;
 }
-
-float chirpseq[CHIRP_BODY/DECIMATION];
 
 void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     if (!data || !len_limit) {

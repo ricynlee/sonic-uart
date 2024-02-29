@@ -33,16 +33,22 @@ typedef struct {
 } fir_filter_data_t;
 #endif
 
-fir_filter::fir_filter(const float* const coef, int order) {
+fir_filter::fir_filter() {
+    data = NULL;
+}
+
+void fir_filter::init(const float* const coef, int len /* order+1 */) {
     // coef length = 4n
     // order = 4n-1
+    if (data)
+        return;
 #if defined(__AVX__)
     // assert((order+1) % 4 == 0);
     static const packed_t vindex = {
         .i = {0,32,64,96,0,32,64,96}
     };
     data = malloc(sizeof(fir_filter_data_t));
-    Dn = order+1;
+    Dn = len;
     Di = 0;
     Db = (packed_t*)_mm_malloc(Dn/4*8*2*sizeof(float), 32);
     Dz = Db + Dn/4;
@@ -56,8 +62,10 @@ fir_filter::fir_filter(const float* const coef, int order) {
 }
 
 fir_filter::~fir_filter() {
-    _mm_free(Db);
-    free(data);
+    if (data) {
+        _mm_free(Db);
+        free(data);
+    }
 }
 
 sample_t fir_filter::filter(const sample_t& in) {

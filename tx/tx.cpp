@@ -7,16 +7,20 @@
 
 using namespace std;
 
+#define TX_BUF_DEPTH 512    // common divisor of samples per chip and samples per symbol
+                            // >ORDER
+                            // cannot be too small (e.g., <256) in case of overflow/underflow
+
 static float SIN[8]; // {0, 0.353553390593274, -0.5, 0.353553390593274, 0, -0.353553390593273, 0.5, -0.353553390593274}; // 18kHz
 static float COS[8]; // {0.5, -0.353553390593274, 0, 0.353553390593274, -0.5, 0.353553390593275, 0, -0.353553390593274}; // 18kHz
 
 // filter implementation
-static const float B[128] = LPF_COEF;
-static const int ORDER = sizeof(B)/sizeof(B[0])-1;
+static const float LPF[128] = LPF_COEF;
+#define LPF_LEN (sizeof(LPF)/sizeof(LPF[0]))
 
 fifo<float> q; // inter-thread data queue
 
-fir_filter* lpf = NULL;
+fir_filter lpf;
 
 int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, double /* timestamp */, RtAudioStreamStatus status, void* /* shared_data */) {
     if (status) {
@@ -66,7 +70,7 @@ void tx_modulate(const char* const data, unsigned len) {
     for (int i=0; i<CHIRP_BODY; i++) {
         constel.I = chirp(i);
         constel.Q = 0;
-        sample = lpf->filter(constel);
+        sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 
@@ -74,7 +78,7 @@ void tx_modulate(const char* const data, unsigned len) {
     constel.I = 0;
     constel.Q = 0;
     for (int i=0; i<BUBBLE_BODY; i++) {
-        sample = lpf->filter(constel);
+        sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 
@@ -82,7 +86,7 @@ void tx_modulate(const char* const data, unsigned len) {
     constel.I = 1;
     constel.Q = 0;
     for (int i=0; i<CARRIER_BODY; i++) {
-        sample = lpf->filter(constel);
+        sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 
@@ -90,7 +94,7 @@ void tx_modulate(const char* const data, unsigned len) {
     constel.I = 0;
     constel.Q = 0;
     for (int i=0; i<BUBBLE_BODY; i++) {
-        sample = lpf->filter(constel);
+        sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 
@@ -98,7 +102,7 @@ void tx_modulate(const char* const data, unsigned len) {
     for (int i=0; i<CHIRP_BODY; i++) {
         constel.I = chirp(i);
         constel.Q = 0;
-        sample = lpf->filter(constel);
+        sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 
@@ -106,11 +110,9 @@ void tx_modulate(const char* const data, unsigned len) {
     constel.I = 0;
     constel.Q = 0;
     for (int i=0; i<BUBBLE_BODY; i++) {
-        sample = lpf->filter(constel);
+        sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
-
-    return;
 
     // frame length in octets
     len &= ~((-1)<<LENGTH_BITS);
@@ -119,7 +121,7 @@ void tx_modulate(const char* const data, unsigned len) {
         constel.I = (1-2*bit);
         constel.Q = 0;
         for (int i=0; i<SYMBOL_BODY; i++) {
-            sample = lpf->filter(constel);
+            sample = lpf.filter(constel);
             q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
         }
     }
@@ -142,7 +144,7 @@ void tx_modulate(const char* const data, unsigned len) {
                     constel.Q = 0.75 - 0.5*(sym >> 2);
             }
             for (int i=0; i<SYMBOL_BODY; i++) {
-                sample = lpf->filter(constel);
+                sample = lpf.filter(constel);
                 q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
             }
         }
@@ -152,15 +154,14 @@ void tx_modulate(const char* const data, unsigned len) {
     constel.I = 0;
     constel.Q = 0;
     for (int i=0; i<TX_BUF_DEPTH; i++) {
-        sample = lpf->filter(constel);
+        sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 }
 
 void ui(void) {
     // init lpf
-    fir_filter low_pass_filter(B, ORDER);
-    lpf = &low_pass_filter;
+    lpf.init(LPF, LPF_LEN);
 
     // init local oscillator lut
     for (int i=0; i<(int)(sizeof(SIN)/sizeof(SIN[0])); i++) {
