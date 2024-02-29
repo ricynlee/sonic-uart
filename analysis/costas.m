@@ -6,7 +6,7 @@ fs = 48e3; % sampling freq
 
 snr = 0;
 
-n = 16384-4096-512;
+n = 16384-4096-128*3;
 
 init_beta = 0.22;
 init_fflim = 10.0;
