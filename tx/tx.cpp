@@ -11,16 +11,16 @@ using namespace std;
                             // >ORDER
                             // cannot be too small (e.g., <256) in case of overflow/underflow
 
-static float SIN[8]; // {0, 0.353553390593274, -0.5, 0.353553390593274, 0, -0.353553390593273, 0.5, -0.353553390593274}; // 18kHz
 static float COS[8]; // {0.5, -0.353553390593274, 0, 0.353553390593274, -0.5, 0.353553390593275, 0, -0.353553390593274}; // 18kHz
+static float SIN[8]; // {0, 0.353553390593274, -0.5, 0.353553390593274, 0, -0.353553390593273, 0.5, -0.353553390593274}; // 18kHz
 
 // filter implementation
 static const float LPF[128] = LPF_COEF;
 #define LPF_LEN (sizeof(LPF)/sizeof(LPF[0]))
 
-fifo<float> q; // inter-thread data queue
+static fifo<float> q; // inter-thread data queue
 
-fir_filter lpf;
+static fir_filter lpf;
 
 int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, double /* timestamp */, RtAudioStreamStatus status, void* /* shared_data */) {
     if (status) {
@@ -164,9 +164,9 @@ void ui(void) {
     lpf.init(LPF, LPF_LEN);
 
     // init local oscillator lut
-    for (int i=0; i<(int)(sizeof(SIN)/sizeof(SIN[0])); i++) {
-        SIN[i] = sin(2*PI*CARRIER_FRQ*i/SAMPLE_RATE);
-        COS[i] = cos(2*PI*CARRIER_FRQ*i/SAMPLE_RATE);
+    for (int i=0; i<(int)(sizeof(COS)/sizeof(COS[0])); i++) {
+        COS[i] = cos(2*PI*CARRIER_FRQ*i/SAMPLE_RATE)/2;
+        SIN[i] = sin(2*PI*CARRIER_FRQ*i/SAMPLE_RATE)/2;
     }
 
     string s;

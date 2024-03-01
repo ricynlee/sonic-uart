@@ -9,11 +9,15 @@ using namespace std;
 #define RX_BUF_DEPTH    1024
 #define CHIRP_DECIM     8
 
-float chirpseq[CHIRP_BODY/CHIRP_DECIM];
+// filter implementation
+static const float LPF[128] = LPF_COEF;
+#define LPF_LEN (sizeof(LPF)/sizeof(LPF[0]))
 
-inline float amp(sample_t x) {
-    return sqrt(x.I*x.I+x.Q*x.Q);
-}
+static float chirpseq[CHIRP_BODY/CHIRP_DECIM];
+static float noise_level;
+static sample_t tmp;
+
+static fifo<float> q; // inter-thread data queue
 
 class scale_rotate {
 private:
@@ -33,7 +37,11 @@ public:
     }
 };
 
-fifo<float> q; // inter-thread data queue
+class local_oscillator
+
+inline float amp(sample_t x) {
+    return sqrt(x.I*x.I+x.Q*x.Q);
+}
 
 int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */,  double /* timestamp */, RtAudioStreamStatus status, void* /* shared_data */) {
     if (status) cerr << "Overflow!" << endl;
@@ -47,6 +55,19 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
     return 0;
 }
 
+void noise(void) {
+    // background noise measuring
+    for (int j=0; j<LPF_LEN; j++) {
+        q.read(); // make sure lpf is filled
+    }
+
+    noise_level = 0;
+    for (int i=0; i<NOISE_BODY; i++) {
+        tmp = filter(mix(q.read()));
+        noise_level += amp(tmp);
+    }
+}
+
 void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     if (!data || !len_limit) {
         return;
@@ -54,7 +75,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
     double lof = CARRIER_FRQ;
     double phi = 0;
-    sample_t tmp;
+
     int latency;
 
     auto mix = [&phi, &lof](float x) {
@@ -63,16 +84,6 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         return mixed;
     };
 
-    // background noise measuring
-    for (int j=0; j<512; j++) {
-        q.read(); // make sure lpf is filled
-    }
-
-    float noise_level = 0;
-    for (int i=0; i<NOISE_BODY; i++) {
-        tmp = filter(mix(q.read()));
-        noise_level += amp(tmp);
-    }
 
     cerr << "noise level" << ' ' << noise_level << endl;
 
