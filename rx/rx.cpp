@@ -1,17 +1,42 @@
 #include "RtAudio.h"
 #include <iostream>
+#include <cstring>
 #include <cmath>
 #include "dsp.hpp"
 #include "fifo.hpp"
 
 using namespace std;
 
-#define RX_BUF_DEPTH    1024
-#define CHIRP_DECIM     8
+// type declarations
+class scale_rotate {
+private:
+    sample_t factor; // for constellation scaling and rotating
+public:
+    void init(const sample_t&);
+    void correct(sample_t&);
+};
 
-// filter implementation
+class local_oscillator {
+private:
+    double frq;
+    double phi;
+public:
+    local_oscillator();
+    bool carrier_sync();
+    sample_t mix(const float&);
+    double get_frq();
+};
+
+// global objects
+#define RX_BUF_DEPTH    1024
+#define CHIRP_DECIM     4
+
+#define PIx16 50.2654824574367
+
 static const float LPF[128] = LPF_COEF;
 #define LPF_LEN (sizeof(LPF)/sizeof(LPF[0]))
+
+#define MATCH_THRESH (1000./NOISE_BODY) // chirp capture decision threshold, multiple of noise_level
 
 static float chirpseq[CHIRP_BODY/CHIRP_DECIM];
 static float noise_level;
@@ -19,28 +44,98 @@ static sample_t tmp;
 
 static fifo<float> q; // inter-thread data queue
 
-class scale_rotate {
-private:
-    sample_t factor; // for constellation scaling and rotating
-public:
-    void init(const sample_t& x) {
-        float sra2 = x.I*x.I+x.Q*x.Q;
-        factor.I = x.I/sra2;
-        factor.Q = x.Q/sra2;
-    }
+static local_oscillator lo;
+static fir_filter lpf;
+static fir_filter mf; // match filter
+static scale_rotate sr;
 
-    void correct(sample_t& x) {
-        sample_t xi = x;
-        sample_t& xo = x;
-        xo.I = xi.I*factor.I + xi.Q*factor.Q;
-        xo.Q = xi.Q*factor.I - xi.I*factor.Q;
-    }
-};
-
-class local_oscillator
-
-inline float amp(sample_t x) {
+// functions
+inline float amp(const sample_t& x) {
     return sqrt(x.I*x.I+x.Q*x.Q);
+}
+
+void scale_rotate::init(const sample_t& x) {
+    float sra2 = x.I*x.I+x.Q*x.Q;
+    factor.I = x.I/sra2;
+    factor.Q = x.Q/sra2;
+}
+
+void scale_rotate::correct(sample_t& x) {
+    sample_t xi = x;
+    sample_t& xo = x;
+    xo.I = xi.I*factor.I + xi.Q*factor.Q;
+    xo.Q = xi.Q*factor.I - xi.I*factor.Q;
+}
+
+local_oscillator::local_oscillator() {
+    frq = CARRIER_FRQ;
+    phi = 0;
+}
+
+bool local_oscillator::carrier_sync() {
+    const double init_beta = 0.03;
+    const double init_fflim = 10.0;
+    const double adjcoef_beta = 0.90;
+    const double adjcoef_fflim = 0.95;
+    const double alpha = 0.0042;
+    const int frqr_sample_period = 256;
+
+    double beta = init_beta;
+    double fflim = init_fflim;
+    bool lock = false;
+    double frqr_sample[8] = {0};
+
+    frq = CARRIER_FRQ;
+    phi = 0;
+
+    for (int i=0; i<CARRIER_BODY; i++) {
+        tmp = lpf.filter(lo.mix(q.read()));
+        double phie = atan2(tmp.Q, tmp.I);
+
+        // parameter adjusted for convergence
+        if ((i % frqr_sample_period)==0) {
+            double min = frq, max = frq;
+            frqr_sample[(i / frqr_sample_period) & (sizeof(frqr_sample)/sizeof(double))] = frq;
+
+            // lock check
+            for (int j=0; j<(int)(sizeof(frqr_sample)/sizeof(double)); j++) {
+                if (frqr_sample[j] < min) min = frqr_sample[j];
+                if (frqr_sample[j] > max) max = frqr_sample[j];
+            }
+            lock = (max-min < fflim);
+
+            // adjusting
+            if (lock) {
+                beta *= adjcoef_beta;
+                fflim *= adjcoef_fflim;
+            }
+            else {
+                beta /= adjcoef_beta;
+                fflim /= adjcoef_fflim;
+                if (beta > init_beta) beta = init_beta;
+                if (fflim > init_fflim) fflim = init_fflim;
+            }
+        }
+
+        // loop output
+        phi = phi + alpha*phie;
+        frq = frq + beta*phie;
+    }
+
+    return lock;
+}
+
+sample_t local_oscillator::mix(const float& x) {
+    sample_t mixed = (sample_t){(float)cos(phi)*x, (float)-sin(phi)*x};
+    phi = phi + 2*PI*frq/SAMPLE_RATE;
+    if (phi > PIx16) {
+        phi -= PIx16;
+    }
+    return mixed;
+}
+
+double local_oscillator::get_frq() {
+    return frq;
 }
 
 int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */,  double /* timestamp */, RtAudioStreamStatus status, void* /* shared_data */) {
@@ -55,15 +150,15 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
     return 0;
 }
 
-void noise(void) {
+void measure_noise(void) {
     // background noise measuring
-    for (int j=0; j<LPF_LEN; j++) {
-        q.read(); // make sure lpf is filled
+    for (int j=0; j<(int)LPF_LEN; j++) {
+        lpf.filter(lo.mix(q.read())); // make sure lpf is filled
     }
 
     noise_level = 0;
     for (int i=0; i<NOISE_BODY; i++) {
-        tmp = filter(mix(q.read()));
+        tmp = lpf.filter(lo.mix(q.read()));
         noise_level += amp(tmp);
     }
 }
@@ -73,148 +168,112 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         return;
     }
 
-    double lof = CARRIER_FRQ;
-    double phi = 0;
+    double doppler_coef;
 
-    int latency;
-
-    auto mix = [&phi, &lof](float x) {
-        sample_t mixed = (sample_t){(float)cos(phi)*x, (float)-sin(phi)*x};
-        phi = phi + 2*PI*lof/SAMPLE_RATE;
-        return mixed;
-    };
-
-
-    cerr << "noise level" << ' ' << noise_level << endl;
-
-    // listening for preamble
+    // listen for preamble
     while (true) {
-        float level = 0;
-        for (int i=0; i<NOISE_BODY*4; i++) {
-            tmp = filter(mix(q.read()));
-            level += amp(tmp);
-        }
-        level /= 4;
+        int latency;
+        float mf_amp[3];
+        
+        // preamble0
+        memset(mf_amp, 0, sizeof(mf_amp));
+        for (unsigned short i=0; ; i++) {
+            tmp = lpf.filter(lo.mix(q.read()));
+            if (i % CHIRP_DECIM == 0) {
+                mf_amp[0] = mf_amp[1];
+                mf_amp[1] = mf_amp[2];
+                mf_amp[2] = amp(mf.filter(tmp));
 
-        cerr << "level" << ' ' << level << endl;
-    }
-
-#if 0
-    {
-        sample_t win[ACCUMUL_TIMES*CHIPS] = {{0}};
-        float peaka[3] = {0};
-
-        while (true) {
-            // shifting window (match filter)
-            for (int i=0; i<ACCUMUL_TIMES*CHIPS-1; i++) {
-                win[i] = win[i+1];
-            }
-            win[ACCUMUL_TIMES*CHIPS-1] = (sample_t){0, 0};
-
-            for (int j=0; j<ACCUMUL_SAMPLES/16; j++) {
-                sample_t accum = {0, 0};
-                for (int i=0; i<16; i++) {
-                    tmp = filter(mix(q.read()));
-                    accum.I += tmp.I;
-                    accum.Q += tmp.Q;
+                if (mf_amp[1] > MATCH_THRESH*noise_level) {
+                    if (mf_amp[1]>mf_amp[2] && mf_amp[1]>=mf_amp[0] && mf_amp[0]>=mf_amp[2]) {
+                        float match_est = mf_amp[1] + (mf_amp[0]-mf_amp[2])/2;
+                        latency = (int)(((match_est-mf_amp[0])/(mf_amp[1]-mf_amp[2])-1)*CHIRP_DECIM);
+                    }
+                    else if (mf_amp[1]>mf_amp[0] && mf_amp[1]>=mf_amp[2] && mf_amp[0]<=mf_amp[2]) {
+                        float match_est = mf_amp[1] - (mf_amp[0]-mf_amp[2])/2;
+                        latency = (int)((match_est-mf_amp[1])/(mf_amp[1]-mf_amp[0])*CHIRP_DECIM);
+                    }
+                    break;
                 }
-
-                costas(accum);
-
-                win[ACCUMUL_TIMES*CHIPS-1].I += accum.I;
-                win[ACCUMUL_TIMES*CHIPS-1].Q += accum.Q;
             }
+        }
+        mf.clear();
 
-            extern float LO;
-            cout << "LO=" << LO << endl;
+        cerr << "Preamble0  " << MATCH_THRESH*noise_level << endl;
+
+        // skip bubble
+        for (int i=0; i<BUBBLE_BODY+latency; i++) {
+            lpf.filter(lo.mix(q.read()));
+        }
+
+        // carrier sync
+        if (! lo.carrier_sync()) {
+            cerr << "Carrier sync lost!" << endl;
             continue;
+        }
+        cerr << "Carrier @ " << lo.get_frq() << endl;
+        doppler_coef = CARRIER_FRQ / lo.get_frq();
 
-            win[ACCUMUL_TIMES*CHIPS-1].I /= ACCUMUL_SAMPLES;
-            win[ACCUMUL_TIMES*CHIPS-1].Q /= ACCUMUL_SAMPLES;
+        // symbol sync
+        bool sync = false;
+        sample_t peak;
+        float amp_peak = 0;
+        memset(mf_amp, 0, sizeof(mf_amp));
+        for (unsigned short i=0; i<CHIRP_BODY+BUBBLE_BODY*2; i++) {
+            tmp = lpf.filter(lo.mix(q.read()));
+            if (i % CHIRP_DECIM == 0) {
+                tmp = mf.filter(tmp);
+                mf_amp[0] = mf_amp[1];
+                mf_amp[1] = mf_amp[2];
+                mf_amp[2] = amp(tmp);
 
-            // capture threshold (by amplitude)
-            float capture_thresh = 0;
-            for (int i=0; i<ACCUMUL_TIMES*4; i++) {
-                capture_thresh += amp(win[(CHIPS-4)*ACCUMUL_TIMES+i]);
-            }
-            capture_thresh = (capture_thresh-noise_level)*(CHIPS*0.5/4); // 4 past chips scanned
-
-            // cout << capture_thresh << ' ';
-
-            // capture
-            tmp = (sample_t){0, 0};
-            for (int i=0; i<CHIPS; i++) {
-                for (int j=CHIP_PREFIX/ACCUMUL_SAMPLES; j<(CHIP_PREFIX+CHIP_BODY)/ACCUMUL_SAMPLES; j++) {
-                    tmp.I += win[i*ACCUMUL_TIMES+j].I * (1-2*MSEQ[i]);
-                    tmp.Q += win[i*ACCUMUL_TIMES+j].Q * (1-2*MSEQ[i]);
+                if (mf_amp[2] > amp_peak) {
+                    amp_peak = mf_amp[2];
+                    peak = tmp;
                 }
-            }
-            peaka[0] = peaka[1];
-            peaka[1] = peaka[2];
-            peaka[2] = amp(tmp);
 
-            // cout << peaka[2] << endl;
-            // continue;
-
-            if (capture_thresh < 16) {
-                continue;
-            }
-            if (peaka[1]>peaka[2] && peaka[1]>=peaka[0] && peaka[0]>=peaka[2]) {
-                float peaka_est = peaka[1] + (peaka[0]-peaka[2])/2;
-                latency = (int)(((peaka_est-peaka[0])/(peaka[1]-peaka[2])-1)*ACCUMUL_SAMPLES);
-                if (capture_thresh<peaka_est) {
-                    break;
-                }
-            } else if (peaka[1]>peaka[0] && peaka[1]>=peaka[2] && peaka[0]<=peaka[2]) {
-                float peaka_est = peaka[1] - (peaka[0]-peaka[2])/2;
-                latency = (int)((peaka_est-peaka[1])/(peaka[1]-peaka[0])*ACCUMUL_SAMPLES);
-                if (capture_thresh<peaka_est) {
+                if (mf_amp[1] > MATCH_THRESH*noise_level) {
+                    if (mf_amp[1]>mf_amp[2] && mf_amp[1]>=mf_amp[0] && mf_amp[0]>=mf_amp[2]) {
+                        float match_est = mf_amp[1] + (mf_amp[0]-mf_amp[2])/2;
+                        latency = (int)(((match_est-mf_amp[0])/(mf_amp[1]-mf_amp[2])-1)*CHIRP_DECIM);
+                    }
+                    else if (mf_amp[1]>mf_amp[0] && mf_amp[1]>=mf_amp[2] && mf_amp[0]<=mf_amp[2]) {
+                        float match_est = mf_amp[1] - (mf_amp[0]-mf_amp[2])/2;
+                        latency = (int)((match_est-mf_amp[1])/(mf_amp[1]-mf_amp[0])*CHIRP_DECIM);
+                    }
+                    sync = true;
                     break;
                 }
             }
         }
-    }
+        mf.clear();
 
-    // skip bubble
-    for (int i=0; i<ACCUMUL_SAMPLES*(ACCUMUL_TIMES-1)+latency; i++) {
-        filter(mix(q.read()));
-    }
+        if (! sync) {
+            continue;
+        }
 
-    // preamble1 & amplitude/phase aligning
-    for (int i=0; i<SYMBOL_CYCLIC_PREFIX; i++) {
-        filter(mix(q.read()));
-    }
-    sample_t sr = (sample_t){0, 0};
-    for (int i=0; i<SYMBOL_BODY; i++) {
-        tmp = filter(mix(q.read()));
-        sr.I += tmp.I;
-        sr.Q += tmp.Q;
-    }
-    sr.I /= (SYMBOL_BODY/128);
-    sr.Q /= (SYMBOL_BODY/128);
-    init_scale_rotate(sr);
-    for (int i=0; i<SYMBOL_CYCLIC_SUFFIX; i++) {
-        filter(mix(q.read()));
+        peak.I = peak.I * SYMBOL_BODY * CHIRP_DECIM / CHIRP_BODY;
+        peak.Q = peak.Q * SYMBOL_BODY * CHIRP_DECIM / CHIRP_BODY;
+        sr.init(peak);
+
+        // skip bubble
+        for (int i=0; i<(BUBBLE_BODY+latency)*doppler_coef; i++) {
+            lpf.filter(lo.mix(q.read()));
+        }
     }
 
     // packet length
     unsigned len = 0;
     for (int j=0; j<LENGTH_BITS; j++) {
-        for (int i=0; i<SYMBOL_CYCLIC_PREFIX; i++) {
-            filter(mix(q.read()));
-        }
         sample_t constel = (sample_t){0, 0};
         for (int i=0; i<SYMBOL_BODY; i++) {
-            tmp = filter(mix(q.read()));
+            tmp = lpf.filter(lo.mix(q.read()));
             constel.I += tmp.I;
             constel.Q += tmp.Q;
         }
-        constel.I /= (SYMBOL_BODY/128);
-        constel.Q /= (SYMBOL_BODY/128);
-        scale_rotate(constel);
-        for (int i=0; i<SYMBOL_CYCLIC_SUFFIX; i++) {
-            filter(mix(q.read()));
-        }
+        constel.I /= SYMBOL_BODY;
+        constel.Q /= SYMBOL_BODY;
+        sr.correct(constel);
 
         cout << constel.I << ' ' << constel.Q << endl;
 
@@ -229,21 +288,15 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     for (unsigned k=0; k<len; k++) {
         char octet = 0;
         for (int j=0; j<8; j+=MODEM) {
-            for (int i=0; i<SYMBOL_CYCLIC_PREFIX; i++) {
-                filter(mix(q.read()));
-            }
             sample_t constel = (sample_t){0, 0};
             for (int i=0; i<SYMBOL_BODY; i++) {
-                tmp = filter(mix(q.read()));
+                tmp = lpf.filter(lo.mix(q.read()));
                 constel.I += tmp.I;
                 constel.Q += tmp.Q;
             }
-            constel.I /= (SYMBOL_BODY/128);
-            constel.Q /= (SYMBOL_BODY/128);
-            scale_rotate(constel);
-            for (int i=0; i<SYMBOL_CYCLIC_SUFFIX; i++) {
-                filter(mix(q.read()));
-            }
+            constel.I /= SYMBOL_BODY;
+            constel.Q /= SYMBOL_BODY;
+            sr.correct(constel);
 
             cout << constel.I << ' ' << constel.Q << endl;
 
@@ -267,18 +320,21 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     }
 
     // protective margin
-    for (int i=0; i<TX_BUF_DEPTH; i++) {
-        filter(mix(q.read()));
+    for (int i=0; i<(int)LPF_LEN; i++) {
+        lpf.filter(lo.mix(q.read()));
     }
-#endif
 }
 
 void ui(void) {
-    init_filter();
+    lpf.init(LPF, LPF_LEN);
 
-    for (int j=0; j<sizeof(chirpseq)/sizeof(chirpseq[0]); j++) {
-        chirpseq[j] = chirp(j, true);
+    for (int j=0; j<CHIRP_BODY; j+=CHIRP_DECIM) {
+        chirpseq[j / CHIRP_DECIM] = chirp(j);
     }
+    mf.init(chirpseq, CHIRP_BODY/CHIRP_DECIM);
+
+    cerr << "Silence! Measuring noise..." << endl;
+    measure_noise();
 
     cerr << "Listening for data..." << endl;
     char s[256];

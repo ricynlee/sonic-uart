@@ -45,7 +45,8 @@ class fir_filter {
 public:
     fir_filter();
     ~fir_filter();
-    void init(const float* const, int);
+    void init(const float* const, int); // initialize coefficients
+    void clear(); // clear z
     sample_t filter(const sample_t&);
 private:
     void* data;

@@ -8,12 +8,12 @@ snr = 0;
 
 n = 16384-4096-128*3;
 
-init_beta = 0.22;
-init_fflim = 10.0;
-altcoef_beta = 0.80;
-altcoef_fflim = 0.95;
+init_beta = 0.03;
+init_fflim = 4.0;
+adjcoef_beta = 0.90;
+adjcoef_fflim = 0.95;
 
-alpha = 0.03; % phi ctrl
+alpha = 0.0042; % phi ctrl
 beta = init_beta; % frq ctrl
 fflim = init_fflim; % frq fluctuation lim
 
@@ -24,6 +24,8 @@ t = (0:n-1)/fs;
 
 frqt = 18000 + 120*rand()-60;
 sig = cos(2*pi*frqt.*t + rand()*2*pi) + 10^(-snr/20)*randn(1, n)./sqrt(2);
+amp = 10^(2*rand()-1);
+sig = amp*sig;
 
 phir = zeros(1, n);
 frqr = [18000, zeros(1, n-1)];
@@ -49,17 +51,17 @@ for i=1:n
     bbi(i) = sum(lpf.*mixi);
     bbq(i) = sum(lpf.*mixq);
 
-    phie(i) = bbi(i)*bbq(i)/sqrt(bbi(i)^2+bbq(i)^2);
+    phie(i) = atan(bbq(i)/bbi(i));
 
-    if mod(i, 512)==0
+    if mod(i, 256)==0
         frqr_sample = [frqr(i), frqr_sample(1:length(frqr_sample)-1)];
         lock(i) = (max(frqr_sample) - min(frqr_sample) < fflim);
         if lock(i)
-            beta = beta * altcoef_beta;
-            fflim = fflim * altcoef_fflim;
+            beta = beta * adjcoef_beta;
+            fflim = fflim * adjcoef_fflim;
         else
-            beta = beta / altcoef_beta;
-            fflim = fflim / altcoef_fflim;
+            beta = beta / adjcoef_beta;
+            fflim = fflim / adjcoef_fflim;
             if beta > init_beta, beta = init_beta; end
             if fflim > init_fflim; fflim = init_fflim; end
         end
@@ -89,20 +91,20 @@ grid on;
 set(gca, 'yticklabel', get(gca, 'ytick')); % cannnot get rid of yaxis exponent if opengl is used
 
 subplot(1,3,2);
-title('Phase error');
+title('Measured phase error');
 hold on;
 plot(t, phie, 'g', 'linesmooth', 'on');
 plot([t(1), t(n)], [0, 0], 'linesmooth', 'on');
 hold off;
-ylim([-.5, .5]);
+ylim([-pi/2, pi/2]);
 xlim([t(1), t(n)]);
 grid on;
 
 subplot(1,3,3);
-title('Waveform');
+title(sprintf('Normalized waveform\nAmplitude=%.2f', amp));
 hold on;
 plot(t(n-16:n), abs(loi(n-16:n)), 'g', 'linesmooth', 'on');
-plot(t(n-16:n), abs(sig(n-16:n)), 'b.-', 'linesmooth', 'on');
+plot(t(n-16:n), abs(sig(n-16:n)/amp), 'b.-', 'linesmooth', 'on');
 hold off;
 ylim([-.2, 1.6]);
 xlim([t(n-16), t(n)]);

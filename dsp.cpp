@@ -52,6 +52,7 @@ void fir_filter::init(const float* const coef, int len /* order+1 */) {
     Di = 0;
     Db = (packed_t*)_mm_malloc(Dn/4*8*2*sizeof(float), 32);
     Dz = Db + Dn/4;
+
     for (int i=0; i<Dn/4; i++) {
         Dz[i].d = _mm256_setzero_ps();
         Db[i].d = _mm256_i32gather_ps(coef+i, vindex.di, 4); // reshape coef
@@ -59,6 +60,12 @@ void fir_filter::init(const float* const coef, int len /* order+1 */) {
 #else
     // non-AVX routine not implemented
 #endif
+}
+
+void fir_filter::clear() {
+    for (int i=0; i<Dn/4; i++) {
+        Dz[i].d = _mm256_setzero_ps();
+    }
 }
 
 fir_filter::~fir_filter() {
