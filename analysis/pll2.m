@@ -6,14 +6,14 @@ fs = 48e3; % sampling freq
 
 snr = 60;
 
-n = 128*384;
+n = 128*256;
 
-init_beta = 0.8;
+init_beta = 0.3;
 init_fflim = 0.1;
 adjcoef_beta = 1;
 adjcoef_fflim = 1;
 
-alpha = 0.22; % phi ctrl
+alpha = 0.08; % phi ctrl
 beta = init_beta; % frq ctrl
 fflim = init_fflim; % frq fluctuation lim
 
@@ -43,8 +43,8 @@ z4 = zeros(2, length(hbf));
 z5 = zeros(2, length(hbf));
 z6 = zeros(2, length(lpf375));
 
-bbi = zeros(1, fix(n/128));
-bbq = zeros(1, fix(n/128));
+bbi = zeros(1, n);
+bbq = zeros(1, n);
 
 frqr_sample = zeros(1, 8);
 lock = zeros(1, n);
@@ -72,57 +72,38 @@ for i=1:n
             % 12k
             z2 = [filtered, z2(:, 1:length(lpf12k)-1)];
             filtered = sum([lpf12k;lpf12k].*z2, 2);
-            
-                bbi(i) = filtered(1);
-                bbq(i) = filtered(2);
-
-                if mod(i-1, 128)==0
-                    phie(i) = atan(bbq(i)/bbi(i));
-                    if i<n
-                        frqr(i+1) = frqr(i+1) + beta*phie(i);
-                        phir(i+1) = phir(i+1) + alpha*phie(i);
-                    end
-                end
-            
-            if 0 && mod(i-1, 16)==0
+                        
+            if mod(i-1, 16)==0
                 % 3k
                 z3 = [filtered, z3(:, 1:length(hbf)-1)];
                 filtered = sum([hbf;hbf].*z3, 2);
-                                
-                if 0 && mod(i-1, 32)==0
+ 
+                if mod(i-1, 32)==0
                     % 1500
                     z4 = [filtered, z4(:, 1:length(hbf)-1)];
                     filtered = sum([hbf;hbf].*z4, 2);
                     
                     if mod(i-1, 64)==0
-                        % 750
+                        % 750                    
                         z5 = [filtered, z5(:, 1:length(hbf)-1)];
                         filtered = sum([hbf;hbf].*z5, 2);
                         
                         if mod(i-1, 128)==0
                             % 375
+                            bbi(i) = filtered(1);
+                            bbq(i) = filtered(2);
+
+                            if mod(i-1, 128)==0
+                                phie(i) = atan(bbq(i)/bbi(i));
+                                if i<n
+                                    frqr(i+1) = frqr(i+1) + beta*phie(i);
+                                    phir(i+1) = phir(i+1) + alpha*phie(i);
+                                end
+                            end
+
                             z6 = [filtered, z6(:, 1:length(lpf375)-1)];
                             filtered = sum([lpf375;lpf375].*z6, 2);
                             
-                            bbi(i) = filtered(1);
-                            bbq(i) = filtered(2);
-                            
-                            phie(i) = atan(bbq(i)/bbi(i));
-%                             frqr_sample = [frqr(i), frqr_sample(1:length(frqr_sample)-1)];
-%                             lock(i) = (max(frqr_sample) - min(frqr_sample) < fflim);
-%                             if lock(i)
-%                                 beta = beta * adjcoef_beta;
-%                                 fflim = fflim * adjcoef_fflim;
-%                             else
-%                                 beta = beta / adjcoef_beta;
-%                                 fflim = fflim / adjcoef_fflim;
-%                                 if beta > init_beta, beta = init_beta; end
-%                                 if fflim > init_fflim; fflim = init_fflim; end
-%                             end
-                            if i<n
-                                frqr(i+1) = frqr(i+1) + beta*phie(i);
-                                phir(i+1) = phir(i+1) + alpha*phie(i);
-                            end
                         end
                     end
                 end
@@ -158,8 +139,8 @@ grid on;
 
 subplot(1,3,3);
 hold on;
-plot(bbi, '.-');
-plot(bbq, 'r.-');
+plot(t, bbi, '.-');
+plot(t, bbq, 'r.-');
 hold off;
 
 % title(sprintf('Normalized waveform\nAmplitude=%.2f', amp));
