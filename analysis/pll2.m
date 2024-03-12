@@ -6,11 +6,11 @@ fs = 48e3; % sampling freq
 
 snr = -15;
 
-n = 128*256; 
+n = 128*240; 
 
 init_beta = 0.0052;
-init_bblim = 0.125;
-adjcoef_beta = 0.982;
+init_bblim = 0.116;
+adjcoef_beta = 0.948;
 adjcoef_bblim = 0.998;
 
 alpha = 0.0026; % phi ctrl
@@ -30,7 +30,7 @@ end
 
 t = (0:n-1)/fs;
 
-frqt = 18000 + 3*rand()-1.5;
+frqt = 18000 + 6*rand()-3;
 amp = 10^(2*rand()-1);
 sig = cos(2*pi*frqt.*t + rand()*2*pi) + 10^(-snr/20)*randn(1, n)./sqrt(2);
 sig = amp*sig;
@@ -97,7 +97,7 @@ for i=1:n
                 phir(i+1) = phir(i+1) + alpha*phie(i);
             end
 
-            if mod(i-1, 280)==0
+            if mod(i-1, 360)==0
                 bb_sample = [[bbi(i);bbq(i)], bb_sample(:, 1:length(bb_sample)-1)];
                 lock(i) = ( ...
                     abs( ...
@@ -122,7 +122,7 @@ clf;
 set(gcf, 'renderer', 'painters');
 
 subplot(1,3,1);
-title(sprintf('Freq following\nTx=%.2f\n\\Delta(1)=%.2f \\Delta(n)=%.2f', frqt, frqr(1)-frqt, frqr(n)-frqt), 'interpreter', 'tex');
+title(sprintf('Freq following\n\\Delta(1)=%.2f \\Delta(n)=%.2f', frqr(1)-frqt, frqr(n)-frqt), 'interpreter', 'tex');
 hold on;
 plot(t, frqr, 'g-', 'linesmooth', 'on');
 plot(t, frqt+lock-.5, 'c');
