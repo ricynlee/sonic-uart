@@ -12,7 +12,7 @@
 // chirp as preamble
 #define CHIRP_BODY 2048
 #define BUBBLE_BODY 128
-#define CARRIER_BODY (128*242)
+#define CARRIER_BODY (32768 + 256)
 
 // symbol
 #define SYMBOL_BODY 256
@@ -44,6 +44,17 @@ public:
     ~fir_filter();
     void init(const float* const, int); // initialize coefficients
     void clear(); // clear z
+    sample_t filter(const sample_t&);
+private:
+    void* data;
+};
+
+class biquad_filter {
+private:
+    biquad_filter();
+    ~biquad_filter();
+    void init(const float*);
+    void clear();
     sample_t filter(const sample_t&);
 private:
     void* data;

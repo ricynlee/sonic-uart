@@ -1,4 +1,5 @@
 % point-by-point loop
+% 48ksps -> 375sps direct down sample (no extra latency)
 clc;
 clear;
 

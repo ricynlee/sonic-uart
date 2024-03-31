@@ -20,10 +20,11 @@ class local_oscillator {
 private:
     double frq;
     double phi;
+    fir_filter hbf[2];
 public:
     local_oscillator();
+    sample_t mix(fifo<float>&);
     bool carrier_sync();
-    sample_t mix(const float&);
     double get_frq();
 };
 
@@ -33,10 +34,18 @@ public:
 
 #define PIx16 50.2654824574367
 
-static const float LPF[128] = LPF_COEF;
+static const float LPF[128] = {9.02066018368156e-06,1.47146669044470e-05,1.61263137389339e-05,8.36971724868580e-06,-1.14243566349565e-05,-4.14028243603962e-05,-7.33568493648115e-05,-9.34228974243534e-05,-8.57779880072831e-05,-3.88699872491052e-05,4.75818004373267e-05,0.000157561627528463,0.000258585874502042,0.000308226459248327,0.000267039417592598,0.000114928782541558,-0.000134334583601472,-0.000426637736610233,-0.000674070310034469,-0.000775990612521527,-0.000651111180603454,-0.000272055513271638,0.000309383871499698,0.000957812776710881,0.00147769250649465,0.00166367467102975,0.00136715170910193,0.000560190518785614,-0.000625486697300812,-0.00190341734857556,-0.00288956489440250,-0.00320442537962824,-0.00259627872245236,-0.00104985191066245,0.00115787661807726,0.00348351469031493,0.00523287158194523,0.00574734583134558,0.00461602924949001,0.00185201785725053,-0.00202858461573343,-0.00606729811070622,-0.00907033021918942,-0.00992536811557056,-0.00795199199938506,-0.00318686416700240,0.00349195854790376,0.0104653748736718,0.0157069302183590,0.0172931437219755,0.0139756395029551,0.00566684550283199,-0.00630534642857666,-0.0192748016756516,-0.0296710625174893,-0.0337440854734465,-0.0284317144017534,-0.0121708268783935,0.0145507107854594,0.0490564027534398,0.0868227419137602,0.122253252530521,0.149732253247598,0.164732783595156,0.164732783595156,0.149732253247598,0.122253252530521,0.0868227419137602,0.0490564027534398,0.0145507107854594,-0.0121708268783935,-0.0284317144017534,-0.0337440854734465,-0.0296710625174893,-0.0192748016756516,-0.00630534642857666,0.00566684550283199,0.0139756395029551,0.0172931437219755,0.0157069302183590,0.0104653748736718,0.00349195854790376,-0.00318686416700240,-0.00795199199938506,-0.00992536811557056,-0.00907033021918942,-0.00606729811070622,-0.00202858461573343,0.00185201785725053,0.00461602924949001,0.00574734583134558,0.00523287158194523,0.00348351469031493,0.00115787661807726,-0.00104985191066245,-0.00259627872245236,-0.00320442537962824,-0.00288956489440250,-0.00190341734857556,-0.000625486697300812,0.000560190518785614,0.00136715170910193,0.00166367467102975,0.00147769250649465,0.000957812776710881,0.000309383871499698,-0.000272055513271638,-0.000651111180603454,-0.000775990612521527,-0.000674070310034469,-0.000426637736610233,-0.000134334583601472,0.000114928782541558,0.000267039417592598,0.000308226459248327,0.000258585874502042,0.000157561627528463,4.75818004373267e-05,-3.88699872491052e-05,-8.57779880072831e-05,-9.34228974243534e-05,-7.33568493648115e-05,-4.14028243603962e-05,-1.14243566349565e-05,8.36971724868580e-06,1.61263137389339e-05,1.47146669044470e-05,9.02066018368156e-06};
 #define LPF_LEN (sizeof(LPF)/sizeof(LPF[0]))
 
-#define MATCH_THRESH (1000./NOISE_BODY) // chirp capture decision threshold, multiple of noise_level
+static const float HBF[16] = {-1.00565929571123e-05,-0.000321623413532287,0.00199470588834347,0.00750258131670068,-0.0214172449746208,-0.0521987304211924,0.123744402545264,0.440705965651995,0.440705965651995,0.123744402545264,-0.0521987304211924,-0.0214172449746208,0.00750258131670068,0.00199470588834347,-0.000321623413532287,-1.00565929571123e-05};
+#define HBF_LEN (sizeof(HBF)/sizeof(HBF[0]))
+
+static const float IIR[2][6] = { \
+    {0.0727965161204338, -0.145271225189293, 0.0727965161204338, 1, -1.98248481750488, 0.982806622982025,} \
+    {0.00927162170410156, 0.00927162170410156, 0, 1, -0.981456756591797, 0} \
+};
+
+#define MATCH_THRESH (27500./NOISE_BODY) // chirp capture decision threshold, multiple of noise_level
 
 static float chirpseq[CHIRP_BODY/CHIRP_DECIM];
 static float noise_level;
@@ -52,6 +61,11 @@ static scale_rotate sr;
 // functions
 inline float amp(const sample_t& x) {
     return sqrt(x.I*x.I+x.Q*x.Q);
+}
+
+inline float qread(void) {
+    
+    return 
 }
 
 void scale_rotate::init(const sample_t& x) {
@@ -70,9 +84,39 @@ void scale_rotate::correct(sample_t& x) {
 local_oscillator::local_oscillator() {
     frq = CARRIER_FRQ;
     phi = 0;
+    noise_level = 0;
+    hbf[0].init(HBF, HBF_LEN);
+    hbf[1].init(HBF, HBF_LEN);
 }
 
 bool local_oscillator::carrier_sync() {
+    biquad_filter iir_a, iir_b;
+    iir_a.init(IIR[0]);
+    iir_b.init(IIR[1]);
+
+    // measure noise
+
+
+    for (int i=0; i<CARRIER_BODY; i++) {
+        iir_b.filter(iir_a.filter(mix(q))); // cascaded
+        double phie = atan2(tmp.Q, tmp.I);
+        frq += beta*phie;
+        phi += alpha*phie;
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     const double init_beta = 0.03;
     const double init_fflim = 10.0;
     const double adjcoef_beta = 0.90;
@@ -89,7 +133,7 @@ bool local_oscillator::carrier_sync() {
     phi = 0;
 
     for (int i=0; i<CARRIER_BODY; i++) {
-        tmp = lpf.filter(lo.mix(q.read()));
+        tmp = lpf.filter(lo.mix(q));
         double phie = atan2(tmp.Q, tmp.I);
 
         // parameter adjusted for convergence
@@ -125,12 +169,21 @@ bool local_oscillator::carrier_sync() {
     return lock;
 }
 
-sample_t local_oscillator::mix(const float& x) {
-    sample_t mixed = (sample_t){(float)cos(phi)*x, (float)-sin(phi)*x};
-    phi = phi + 2*PI*frq/SAMPLE_RATE;
-    if (phi > PIx16) {
-        phi -= PIx16;
+sample_t local_oscillator::mix(fifo<float>& q) {
+    sample_t mixed;
+    for (int i=0; i<2; i++) {
+        for (int j=0; j<2; j++) {
+            float x = q.read();
+            mixed = hbf[0].filter((sample_t){(float)cos(phi)*x, (float)-sin(phi)*x});
+            phi = phi + 2*PI*frq/SAMPLE_RATE;
+            if (phi > PIx16) {
+                phi -= PIx16;
+            }
+        }
+        // decimated 1/2
+        mixed = hbf[1].filter(mixed);
     }
+    // decimated 1/2
     return mixed;
 }
 
@@ -153,12 +206,12 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
 void measure_noise(void) {
     // background noise measuring
     for (int j=0; j<(int)LPF_LEN; j++) {
-        lpf.filter(lo.mix(q.read())); // make sure lpf is filled
+        lpf.filter(lo.mix(q)); // make sure lpf is filled
     }
 
     noise_level = 0;
     for (int i=0; i<NOISE_BODY; i++) {
-        tmp = lpf.filter(lo.mix(q.read()));
+        tmp = lpf.filter(lo.mix(q));
         noise_level += amp(tmp);
     }
 }
@@ -178,7 +231,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         // preamble0
         memset(mf_amp, 0, sizeof(mf_amp));
         for (unsigned short i=0; ; i++) {
-            tmp = lpf.filter(lo.mix(q.read()));
+            tmp = lpf.filter(lo.mix(q));
             if (i % CHIRP_DECIM == 0) {
                 mf_amp[0] = mf_amp[1];
                 mf_amp[1] = mf_amp[2];
@@ -203,7 +256,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
         // skip bubble
         for (int i=0; i<BUBBLE_BODY+latency; i++) {
-            lpf.filter(lo.mix(q.read()));
+            lpf.filter(lo.mix(q));
         }
 
         // carrier sync
@@ -220,7 +273,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         float amp_peak = 0;
         memset(mf_amp, 0, sizeof(mf_amp));
         for (unsigned short i=0; i<CHIRP_BODY+BUBBLE_BODY*2; i++) {
-            tmp = lpf.filter(lo.mix(q.read()));
+            tmp = lpf.filter(lo.mix(q));
             if (i % CHIRP_DECIM == 0) {
                 tmp = mf.filter(tmp);
                 mf_amp[0] = mf_amp[1];
@@ -258,7 +311,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
         // skip bubble
         for (int i=0; i<(BUBBLE_BODY+latency)*doppler_coef; i++) {
-            lpf.filter(lo.mix(q.read()));
+            lpf.filter(lo.mix(q));
         }
     }
 
@@ -267,7 +320,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     for (int j=0; j<LENGTH_BITS; j++) {
         sample_t constel = (sample_t){0, 0};
         for (int i=0; i<SYMBOL_BODY; i++) {
-            tmp = lpf.filter(lo.mix(q.read()));
+            tmp = lpf.filter(lo.mix(q));
             constel.I += tmp.I;
             constel.Q += tmp.Q;
         }
@@ -290,7 +343,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         for (int j=0; j<8; j+=MODEM) {
             sample_t constel = (sample_t){0, 0};
             for (int i=0; i<SYMBOL_BODY; i++) {
-                tmp = lpf.filter(lo.mix(q.read()));
+                tmp = lpf.filter(lo.mix(q));
                 constel.I += tmp.I;
                 constel.Q += tmp.Q;
             }
@@ -321,7 +374,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
     // protective margin
     for (int i=0; i<(int)LPF_LEN; i++) {
-        lpf.filter(lo.mix(q.read()));
+        lpf.filter(lo.mix(q));
     }
 }
 

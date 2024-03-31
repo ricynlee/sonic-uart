@@ -1,4 +1,5 @@
 % point-by-point loop
+% 48ksps -> 12ksps filtered down sample (extra latency introduced)
 clc;
 clear;
 
@@ -6,11 +7,11 @@ fs = 48e3; % sampling freq
 
 snr = -15;
 
-n = 128*240; 
+n = 32768; 
 
 init_beta = 0.0052;
 init_bblim = 0.116;
-adjcoef_beta = 0.948;
+adjcoef_beta = 0.958;
 adjcoef_bblim = 0.998;
 
 alpha = 0.0026; % phi ctrl
@@ -78,7 +79,7 @@ for i=1:n
 
             % z2 = [filtered, z2(:, 1:length(lpf12k)-1)];
             % filtered = sum([lpf12k;lpf12k].*z2, 2);
-                        
+            
             for iq=1:2
                 for sec=1:size(nbf12k, 1)
                     z3(iq, sec, 1) = filtered(iq) - z3(iq, sec, 2)*nbf12k(sec, 5) - z3(iq, sec, 3)*nbf12k(sec, 6);

@@ -12,7 +12,9 @@ typedef union alignas(32) {
     float   f[8];
     int     i[8]; // only 32-bit int supported
 } packed_t;
+#endif
 
+#if defined(__AVX__)
 typedef struct {
     int       n;
     int       i;
@@ -106,4 +108,45 @@ float chirp(size_t index) {
     const double u = 1200. * SAMPLE_RATE / CHIRP_BODY / 2; 
     double t = (double)index/SAMPLE_RATE;
     return (float)cos(2*PI*(-600*t+u*t*t));
+}
+
+typedef struct {
+    float c[5]; // coef
+    sample_t z[3];
+} biquad_filter_data_t;
+
+#define Db (((biquad_filter_data_t*)data)->c)
+#define Da (((biquad_filter_data_t*)data)->c + 2)
+#define Dz (((biquad_filter_data_t*)data)->z)
+
+biquad_filter::biquad_filter() {
+    data = NULL;
+}
+
+biquad_filter::~biquad_filter() {
+    if (data) {
+        free(data);
+    }
+}
+
+void biquad_filter::init(const float* const coef) {
+    data = (biquad_filter_data_t*) malloc(sizeof(biquad_filter_data_t));
+    memcpy(Db, coef, 3*sizeof(float));
+    memcpy(Da+1, coef+4, 2*sizeof(float));
+    clear();
+}
+
+void biquad_filter::clear() {
+    memset(Dz, 0, sizeof Dz);
+}
+
+sample_t biquad_filter::filter(const sample_t& in) {
+    sample_t out;
+    Dz[0].I =   in.I -          Da[1]*Dz[1].I - Da[2]*Dz[2].I;
+    out.I =     Db[0]*Dz[0].I + Db[1]*Dz[1].I + Db[2]*Dz[2].I;
+    Dz[0].Q =   in.Q -          Da[1]*Dz[1].Q - Da[2]*Dz[2].Q;
+    out.Q =     Db[0]*Dz[0].Q + Db[1]*Dz[1].Q + Db[2]*Dz[2].Q;
+    Dz[3] = Dz[2];
+    Dz[2] = Dz[1];
+    return out;
 }
