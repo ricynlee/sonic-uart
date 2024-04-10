@@ -21,9 +21,12 @@ private:
     double frq;
     double phi;
     fir_filter hbf[2];
+    biquad_filter nbf[2];
+    double noise_level;
 public:
     local_oscillator();
     sample_t mix(fifo<float>&);
+    void noise_measure();
     bool carrier_sync();
     double get_frq();
 };
@@ -45,10 +48,8 @@ static const float IIR[2][6] = { \
     {0.00927162170410156, 0.00927162170410156, 0, 1, -0.981456756591797, 0} \
 };
 
-#define MATCH_THRESH (27500./NOISE_BODY) // chirp capture decision threshold, multiple of noise_level
-
 static float chirpseq[CHIRP_BODY/CHIRP_DECIM];
-static float noise_level;
+
 static sample_t tmp;
 
 static fifo<float> q; // inter-thread data queue
@@ -84,21 +85,38 @@ void scale_rotate::correct(sample_t& x) {
 local_oscillator::local_oscillator() {
     frq = CARRIER_FRQ;
     phi = 0;
-    noise_level = 0;
     hbf[0].init(HBF, HBF_LEN);
     hbf[1].init(HBF, HBF_LEN);
+    nbf[0].init(IIR[0]);
+    nbf[1].init(IIR[1]);
+}
+
+void local_oscillator::noise_measure() {
+    noise_level = 0;
+    nbf[0].clear();
+    nbf[1].clear();
+    for (int i=0; i<NOISE_BODY/4; i++) {
+        tmp = nbf[1].filter(nbf[0].filter(mix(q))); // cascaded
+        noise_level += amp(tmp);
+    }
 }
 
 bool local_oscillator::carrier_sync() {
-    biquad_filter iir_a, iir_b;
-    iir_a.init(IIR[0]);
-    iir_b.init(IIR[1]);
+    // carrier detect
+    float level = 0;
+    while (true) {
+        for (int i=0; i<(256/2)/4; i++) {
+            tmp = nbf[1].filter(nbf[0].filter(mix(q))); // cascaded
+            level += amp(tmp);
+        }
+        if (level*(NOISE_BODY/256*2) = noise_level*16) {
+            break;
+        }
+    }
 
-    // measure noise
-
-
-    for (int i=0; i<CARRIER_BODY; i++) {
-        iir_b.filter(iir_a.filter(mix(q))); // cascaded
+    // carrier sync
+    for (int i=0; i<CARRIER_BODY/4; i++) {
+        tmp = nbf[1].filter(nbf[0].filter(mix(q))); // cascaded
         double phie = atan2(tmp.Q, tmp.I);
         frq += beta*phie;
         phi += alpha*phie;
