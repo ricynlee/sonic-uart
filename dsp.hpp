@@ -3,21 +3,21 @@
 #define PI 3.1415926535897932384626433
 
 // misc
-#define SAMPLE_RATE 48000
-#define CARRIER_FRQ 18000
+#define SAMPLE_RATE     48000
+#define CARRIER_FRQ     18000
 
 // noise measuring
-#define NOISE_BODY 16384
+#define NOISE_BODY      16384
 
 // chirp as preamble
-#define CHIRP_BODY 2048
-#define BUBBLE_BODY 128
-#define CARRIER_BODY (32768 + 256)
+#define PREAM_BODY      65536
+#define BUBBLE_BODY     256
+#define CARRIER_BODY    (65536-BUBBLE_BODY)
 
 // symbol
-#define SYMBOL_BODY 256
+#define SYMBOL_BODY     512
 
-#define LENGTH_BITS 8
+#define LENGTH_BITS     8
 
 #define BPSK 1
 #define QPSK 2
