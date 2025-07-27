@@ -142,9 +142,11 @@ sample_t fir_filter::filter(const sample_t& in) {
          */
         summed.Q += Db[j]*Dz[(Di+j)%Dn].Q;
     }
+    /*
+    cout << endl;
+     */
 
     Di = (Di+Dn-1) % Dn;
-    cout << endl;
 
     return summed;
 #endif
