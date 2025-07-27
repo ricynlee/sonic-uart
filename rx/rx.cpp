@@ -31,14 +31,14 @@ public:
 // global objects
 #define RX_BUF_DEPTH            1024
 #define MF_LOCAL_MAX_CAPACITY   64
-#define TH_COEF                 0.2f
+#define TH_COEF                 0.21f
 
 #define PIx16 50.2654824574367
 
 // fir lpf
 static const float LPF[LPF_LEN] = LPF_COEF;
 
-// chirp preamble match filter
+// chirp preamble match filter coef
 static float* MF;
 
 static sample_t tmp;
@@ -48,6 +48,7 @@ static fifo<float> q; // inter-thread data queue
 static local_oscillator lo;
 static fir_filter lpf;
 static fir_filter mf;
+static biquad_filter nbf;
 static scale_rotate sr;
 
 // functions
@@ -115,34 +116,70 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
     // preamble
     {
-        float x[3]; // local max finder
-        float th;
+        float x[3] = {-1.f, -1.f, -1.f}; // local max finder
+        float th = 0;
         std::queue<float> local_max_q;
         for (unsigned short i=0; i<MF_LOCAL_MAX_CAPACITY; i++) {
             local_max_q.push(-1.0f);
         }
 
         for (unsigned short i=0; ; i++) {
-            tmp = lpf.filter(lo.mix(q));
+            float sig = q.read();
+            tmp = lpf.filter(lo.mix(sig));
+            cout << sig << ' ' << tmp.I << ' ' << tmp.Q << ' ';
             if (i % 8 == 0) { // decimation
                 tmp = mf.filter(tmp); // match filtering
+                cout << tmp.I << ' ' << tmp.Q << endl;
                 x[0] = x[1];
                 x[1] = x[2];
                 x[2] = amp(tmp); // cross correlation
-                if ((x[1]>x[0] && x[1]>=x[2]) || (x[1]>=x[0] && x[1]>x[2])) { // local max found
+                if (x[0]>=0.0f && ((x[1]>x[0] && x[1]>=x[2]) || (x[1]>=x[0] && x[1]>x[2]))) { // local max found
                     th += x[0] - local_max_q.front();
                     local_max_q.push(x[1]);
                     if (local_max_q.front()>0.0f && x[1]>th*TH_COEF) { // global max found
-                        break;
+                        // break;
                     }
                     local_max_q.pop();
                 }
+            } else {
+                cout << "0.0 0.0" << endl;
+            }
+        }
+        // mf.clear();
+    }
+
+    // carrier sync
+    if (0) {
+        for (unsigned short i=0; i<BUBBLE_BODY/2-8; i++) { // skip half of the bubble, match filter has 8-point delay
+            float sig = q.read();
+            tmp = lpf.filter(lo.mix(sig));
+            cout << sig << ' ' << tmp.I << ' ' << tmp.Q << " 0.0 0.0" << endl;
+        }
+
+        for (unsigned short i=0; i<BUBBLE_BODY; i++) { // skip the rest half, and more
+            float sig = q.read();
+            tmp = lpf.filter(lo.mix(sig));
+            cout << sig << ' ' << tmp.I << ' ' << tmp.Q << ' ';
+            if (i % 4 == 0) { // decimation
+                tmp = nbf.filter(tmp); // fill in the nbf biquad iir filter
+                cout << tmp.I << ' ' << tmp.Q << endl;
+            } else {
+                cout << "0.0 0.0" << endl;
+            }
+        }
+
+        for (size_t i=0; i<CARRIER_BODY-BUBBLE_BODY/2; i++) {
+            float sig = q.read();
+            tmp = lpf.filter(lo.mix(sig));
+            cout << sig << ' ' << tmp.I << ' ' << tmp.Q << ' ';
+            if (i % 4 == 0) { // decimation
+                tmp = nbf.filter(tmp);
+                cout << tmp.I << ' ' << tmp.Q << endl;
+            } else {
+                cout << "0.0 0.0" << endl;
             }
         }
     }
-
-    // got preamble
-    cerr << "Preamble detected" << endl;
 
     len_limit = 0;
 }
@@ -153,11 +190,17 @@ void ui(void) {
 
     const size_t MF_LEN = PREAM_BODY/8;
     MF = (float*)malloc(sizeof(float)*MF_LEN);
-    for (int i=0; i<MF_LEN; i++) {
+    for (size_t i=0; i<MF_LEN; i++) {
         MF[i] = chirp(i*8);
     }
     mf.init(MF, MF_LEN);
     free(MF);
+
+    const float IIR[6] = { // chebyshev type ii, 2nd order, fs 12k, fstop 420, astop 24db
+        0.0612513348460197, -0.116672359406948, 0.0612513348460197, // B, numerator
+        1, -1.89241921901703, 0.898249506950378, // A, denominator
+    };
+    nbf.init(IIR);
 
     // protective margin, filling LPF
     for (int i=0; i<(int)LPF_LEN; i++) {
