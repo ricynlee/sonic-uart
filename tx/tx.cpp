@@ -65,7 +65,7 @@ void tx_modulate(const char* const data, unsigned len) {
 
     sample_t constel, sample;
 
-    // preamble0: chirp for time & phase corrector
+    // preamble: chirp for signal existence check, timing and gain control reference
     for (int i=0; i<PREAM_BODY; i++) {
         constel.I = chirp(i);
         constel.Q = 0;
@@ -73,10 +73,18 @@ void tx_modulate(const char* const data, unsigned len) {
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 
-    // bubble: avoid payload-preamble interference
+    // bubble: avoid preamble-carrier interference
     constel.I = 0;
     constel.Q = 0;
     for (int i=0; i<BUBBLE_BODY; i++) {
+        sample = lpf.filter(constel);
+        q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+    }
+
+    // carrier: for freq sync
+    for (int i=0; i<CARRIER_BODY; i++) {
+        constel.I = 1;
+        constel.Q = 0;
         sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }

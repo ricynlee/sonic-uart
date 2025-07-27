@@ -115,6 +115,9 @@ typedef struct {
     sample_t z[3];
 } biquad_filter_data_t;
 
+#undef Db
+#undef Da
+#undef Dz
 #define Db (((biquad_filter_data_t*)data)->c)
 #define Da (((biquad_filter_data_t*)data)->c + 2)
 #define Dz (((biquad_filter_data_t*)data)->z)

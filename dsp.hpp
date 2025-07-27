@@ -12,7 +12,7 @@
 // chirp as preamble
 #define PREAM_BODY      65536
 #define BUBBLE_BODY     256
-#define CARRIER_BODY    (65536-BUBBLE_BODY)
+#define CARRIER_BODY    65536
 
 // symbol
 #define SYMBOL_BODY     512
@@ -54,7 +54,7 @@ private:
 };
 
 class biquad_filter {
-private:
+public:
     biquad_filter();
     ~biquad_filter();
     void init(const float*);
