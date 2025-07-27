@@ -89,6 +89,14 @@ void tx_modulate(const char* const data, unsigned len) {
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 
+    // bubble: avoid carrier-payload interference
+    constel.I = 0;
+    constel.Q = 0;
+    for (int i=0; i<BUBBLE_BODY; i++) {
+        sample = lpf.filter(constel);
+        q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+    }
+
     // // frame length in octets
     // len &= ~((-1)<<LENGTH_BITS);
     // for (int j=0; j<LENGTH_BITS; j++) {

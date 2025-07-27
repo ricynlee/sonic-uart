@@ -149,7 +149,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     }
 
     // carrier sync
-    if (0) {
+    {
         for (unsigned short i=0; i<BUBBLE_BODY/2-8; i++) { // skip half of the bubble, match filter has 8-point delay
             float sig = q.read();
             tmp = lpf.filter(lo.mix(sig));

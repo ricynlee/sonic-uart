@@ -118,7 +118,9 @@ sample_t fir_filter::filter(const sample_t& in) {
         cout << 'x' << Dz[(Di+j)%(Dn/4)].i[0] << ' ' << 'x' << Dz[(Di+j)%(Dn/4)].i[1] << ' ' << 'x' << Dz[(Di+j)%(Dn/4)].i[2] << ' ' << 'x' << Dz[(Di+j)%(Dn/4)].i[3] << endl;
          */
     }
+    /*
     cout << endl;
+     */
 
     summed.d = _mm256_hadd_ps(summed.d, summed.d); // out.I = summed.f[3];
     summed.d = _mm256_hadd_ps(summed.d, summed.d); // out.Q = summed.f[4];
