@@ -3,6 +3,8 @@
 #include <cmath>
 #include "dsp.hpp"
 
+// #include <iostream> // for dbg purposes
+
 using namespace std;
 
 #if defined(__AVX__)
@@ -48,9 +50,11 @@ void fir_filter::init(const float* const coef, int len /* order+1 */) {
     Dn = len;
     Di = 0;
 #if defined(__AVX__)
-    static const packed_t vindex = {
-        .i = {0,4,8,12,0,4,8,12}
-    };
+    packed_t vindex;
+    for (int i=0; i<8; i++) {
+        vindex.i[i] = (i%4)*len/4;
+    }
+
     Db = (packed_t*)_mm_malloc(Dn*4*sizeof(float), 32);
     Dz = Db + Dn*2*sizeof(float)/sizeof(packed_t);
 
@@ -59,23 +63,19 @@ void fir_filter::init(const float* const coef, int len /* order+1 */) {
         Dz[i].d = _mm256_setzero_ps();
     }
 
-    /*
-    for (int i=0; i<Dn/4; i++) {
-        cout << Db[i].i[0] << '\t' << Db[i].i[1] << '\t' << Db[i].i[2] << '\t' << Db[i].i[3] << endl;
-    }
-    cout << endl;
-     */
+    // for (int i=0; i<Dn/4; i++) {
+    //     for (int j=0; j<8; j++)
+    //         cout << Db[i].f[j] << ' ';
+    //     cout << endl;    
+    // }
 #else
     Db = (float*)malloc(Dn*sizeof(float) + Dn*sizeof(sample_t));
     Dz = (sample_t*)(Db + Dn);
-    memset(Dz, 0, len);
+    memset(Dz, 0, len*sizeof(sample_t));
     memcpy(Db, coef, len*sizeof(float));
-    /*
-    for (int i=0; i<Dn; i++) {
-        cout << *(int*)(&Db[i]) << ' ';
-    }
-    cout << endl;
-     */
+    // for (int i=0; i<Dn; i++)
+    //     cout << Db[i] << ' ';
+    // cout << endl;
 #endif
 }
 
@@ -112,18 +112,17 @@ sample_t fir_filter::filter(const sample_t& in) {
     Dz[Di].f[0] = in.I;
     Dz[Di].f[4] = in.Q;
 
+    // cout << "sum([" << endl;
     for (int j=0; j<Dn/4; j++) {
         summed.d = _mm256_fmadd_ps(Dz[(Di+j)%(Dn/4)].d, Db[j].d, summed.d);
-        /*
-        cout << 'x' << Dz[(Di+j)%(Dn/4)].i[0] << ' ' << 'x' << Dz[(Di+j)%(Dn/4)].i[1] << ' ' << 'x' << Dz[(Di+j)%(Dn/4)].i[2] << ' ' << 'x' << Dz[(Di+j)%(Dn/4)].i[3] << endl;
-         */
+        // cout << "    ";
+        // for (int k=0; k<4; k++)
+        //     cout << Db[j].f[k] << "*" << Dz[(Di+j)%(Dn/4)].f[k] << ' ';
+        // cout << endl;
     }
-    /*
-    cout << endl;
-     */
-
     summed.d = _mm256_hadd_ps(summed.d, summed.d); // out.I = summed.f[3];
     summed.d = _mm256_hadd_ps(summed.d, summed.d); // out.Q = summed.f[4];
+    // cout << "]) = " << summed.f[3] << endl << endl;
     
     Di = (Di+Dn/4-1) % (Dn/4);
 
@@ -135,17 +134,13 @@ sample_t fir_filter::filter(const sample_t& in) {
 
     Dz[Di] = in;
 
-    for (size_t j=0; j<Dn; j++) {
+    // cout << "sum([ ";
+    for (int j=0; j<Dn; j++) {
         summed.I += Db[j]*Dz[(Di+j)%Dn].I;
-        /*
-        cout << 'x' << *(int*)(&Dz[(Di+j)%Dn].I) << ' ';
-         */
         summed.Q += Db[j]*Dz[(Di+j)%Dn].Q;
+        // cout << Db[j] << "*" << Dz[(Di+j)%Dn].Q << ' ';
     }
-    /*
-    cout << endl;
-     */
-
+    // cout << "]) = " << summed.Q << endl;
     Di = (Di+Dn-1) % Dn;
 
     return summed;
