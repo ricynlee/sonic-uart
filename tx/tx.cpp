@@ -29,25 +29,25 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
     sample_t* buffer = (sample_t*) out_buf;
 
     static bool wearing = false;
-    static bool R = false;
+    static bool RLn = false; // R/L channel wearing balancing
     unsigned fifo_size = q.size();
 
     if (fifo_size<TX_BUF_DEPTH) {
         if ( /*prior*/ wearing==true ) {
-            R = !R;
+            RLn = !RLn;
         }
         wearing = false;
         for (int i=0; i<TX_BUF_DEPTH; i++) {
             buffer[i].R = 0;
             buffer[i].L = 0;
         }
-    } else if (R) {
+    } else if (RLn) {
         wearing = true;
         for (int i=0; i<TX_BUF_DEPTH; i++) {
             buffer[i].R = q.read();
             buffer[i].L = 0;
         }
-    } else /* !R */ {
+    } else /* !RLn */ {
         wearing = true;
         for (int i=0; i<TX_BUF_DEPTH; i++) {
             buffer[i].R = 0;

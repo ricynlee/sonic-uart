@@ -187,13 +187,13 @@ void biquad_filter::clear() {
     memset(Dz, 0, sizeof Dz);
 }
 
-sample_t biquad_filter::filter(const sample_t& in) {
+sample_t biquad_filter::filter(const sample_t& in) { // direct form ii
     sample_t out;
     Dz[0].I =   in.I -          Da[1]*Dz[1].I - Da[2]*Dz[2].I;
     out.I =     Db[0]*Dz[0].I + Db[1]*Dz[1].I + Db[2]*Dz[2].I;
     Dz[0].Q =   in.Q -          Da[1]*Dz[1].Q - Da[2]*Dz[2].Q;
     out.Q =     Db[0]*Dz[0].Q + Db[1]*Dz[1].Q + Db[2]*Dz[2].Q;
-    Dz[3] = Dz[2];
     Dz[2] = Dz[1];
+    Dz[1] = Dz[0];
     return out;
 }
