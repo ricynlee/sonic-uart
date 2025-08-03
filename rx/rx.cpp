@@ -118,7 +118,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     {
         float x[3] = {-1.f, -1.f, -1.f}; // local max finder
         float th = 0;
-        std::queue<float> local_max_q;
+        queue<float> local_max_q;
         for (unsigned short i=0; i<MF_LOCAL_MAX_CAPACITY; i++) {
             local_max_q.push(-1.0f);
         }
@@ -137,7 +137,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
                     th += x[0] - local_max_q.front();
                     local_max_q.push(x[1]);
                     if (local_max_q.front()>0.0f && x[1]>th*TH_COEF) { // global max found
-                        // break;
+                        break;
                     }
                     local_max_q.pop();
                 }
@@ -191,7 +191,7 @@ void ui(void) {
     const size_t MF_LEN = PREAM_BODY/8;
     MF = (float*)malloc(sizeof(float)*MF_LEN);
     for (size_t i=0; i<MF_LEN; i++) {
-        MF[i] = chirp(i*8);
+        MF[i] = chirp(PREAM_BODY-i*8);
     }
     mf.init(MF, MF_LEN);
     free(MF);
