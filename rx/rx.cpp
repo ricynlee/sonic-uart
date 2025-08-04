@@ -172,13 +172,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
     // carrier sync
     {
-        for (unsigned short i=0; i<BUBBLE_BODY/2-8; i++) { // skip half of the bubble, match filter has 8-point delay
-            float sig = q.read();
-            tmp = lpf.filter(lo.mix(sig));
-            cout << sig << ' ' << tmp.I << ' ' << tmp.Q << " 0.0 0.0" << endl;
-        }
-
-        for (unsigned short i=0; i<BUBBLE_BODY; i++) { // skip the rest half, and more
+        for (unsigned short i=0; i<BUBBLE_BODY-8+1024; i++) { // skip the bubble and coarsely fill nbf (approx. 1024-point delay), match filter has 8-point delay
             float sig = q.read();
             tmp = lpf.filter(lo.mix(sig));
             cout << sig << ' ' << tmp.I << ' ' << tmp.Q << ' ';
@@ -190,7 +184,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             }
         }
 
-        for (size_t i=0; i<CARRIER_BODY-BUBBLE_BODY/2; i++) {
+        for (size_t i=0; i<CARRIER_BODY-4096; i++) {
             float sig = q.read();
             tmp = lpf.filter(lo.mix(sig));
             cout << sig << ' ' << tmp.I << ' ' << tmp.Q << ' ';
@@ -206,7 +200,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     len_limit = 0;
 }
 
-void ui(void) {
+void init_filters() {
     // initialize filters
     lpf.init(LPF, LPF_LEN);
 
@@ -218,11 +212,15 @@ void ui(void) {
     mf.init(MF, MF_LEN);
     free(MF);
 
-    const float IIR[6] = { // chebyshev type ii, 2nd order, fs 12k, fstop 420, astop 24db
-        0.0612513348460197, -0.116672359406948, 0.0612513348460197, // B, numerator
-        1, -1.89241921901703, 0.898249506950378, // A, denominator
+    const float IIR[6] = { // chebyshev type ii, 2nd order, fs 12k, fstop 40, astop 20db
+        0.0993952155113220, -0.198703244328499, 0.0993952155113220, // B, numerator
+        1, -1.98742473125458, 0.987511932849884, // A, denominator
     };
     nbf.init(IIR);
+}
+
+void ui(void) {
+    init_filters();
 
     // protective margin, filling LPF
     for (int i=0; i<(int)LPF_LEN; i++) {
