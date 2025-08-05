@@ -6,12 +6,12 @@ FS = 12e3; % sampling rate
 N = 65536-4096;
 F = rand()*6-3; % freq offset
 PHI = 2*pi*rand(); % phase
-SNR = 10;
+SNR = -10;
 
 %% pll params
-LB = 1; % loop bandwidth in hz
+LB = 0.75; % loop bandwidth in hz
 DF = sqrt(2)/2; % damping factor
-G = 3; % gain
+G = 0.8; % gain
 
 beta = 2*DF*2*pi*LB/FS - (2*pi*LB)^2 / (FS^2*G); % proportional
 alpha = (2*pi*LB)^2/(FS*G); % integral
@@ -48,7 +48,7 @@ for i = 1:N
         mav1 = [f(i); mav1(1:31)];
         if mav1(32)~=1024
             fstdd = std(mav1);
-            if fstdd<0.04
+            if fstdd<0.02
                 stable(i) = true;
                 final = mean(mav1);
             end
