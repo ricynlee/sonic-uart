@@ -4,6 +4,7 @@
 #include <cmath>
 #include "dsp.hpp"
 #include "fifo.hpp"
+#include "sliwin.hpp"
 #include <deque>
 
 using namespace std;
@@ -27,6 +28,16 @@ public:
     sample_t mix(float);
     bool carrier_sync();
     double get_frq();
+};
+
+class sliwin_peak_finder:protected sliwin {
+private:
+    bool _found;
+    float _peak;
+public:
+    sliwin_peak_finder(size_t);
+    bool slide(float);
+    float get_peak(void);
 };
 
 // global objects
@@ -97,6 +108,35 @@ double local_oscillator::get_frq() {
     return frq;
 }
 
+sliwin_peak_finder::sliwin_peak_finder(size_t n):sliwin(n) {
+    _found = false;
+}
+
+bool sliwin_peak_finder::slide(float v) {
+    _found = false;
+    slide(v);
+    if (size()>=3) {
+        v = operator[](1); // hope that [1] is the peak
+        if ((v>operator[](0) && v>=operator[](2)) || (v>=operator[](0) && v>operator[](2))) { // neighborhood peak found
+            for (size_t i=3; i<size(); i++) {
+                if (operator[](i) > v) {
+                    return false;
+                }
+            }
+            _peak = v;
+            _found = true; // regional peak found
+        }
+    }
+    return _found;
+}
+
+float sliwin_peak_finder::get_peak(void) {
+    if (_found)
+        return _peak;
+    else
+        return 0.0f;
+}
+
 int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */,  double /* timestamp */, RtAudioStreamStatus status, void* /* shared_data */) {
     if (status) cerr << "Overflow!" << endl;
 
@@ -115,59 +155,32 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     }
 
     // preamble
-    {
-        static const size_t MAV0_SIZE = 32;
-        static const size_t MAV1_SIZE = 32;
-        
-        deque<float> mav0; // regional peak finder, size 32
-        queue<float> mav1; // size 32
-        float sum1 = 0.0f; // sum of mav1
-        float th = 65536.f; // final decision threshold
+    {        
+        sliwin_peak_finder win0(32); // regional peak finder
+        sliwin_sum win1(32);
 
         for (unsigned short i=0; ; i++) {
             float sig = q.read();
             tmp = lpf.filter(lo.mix(sig));
             cout << sig << ' ' << tmp.I << ' ' << tmp.Q << ' ';
             if (i % 8 == 0) { // decimation
-                tmp = mf.filter(tmp); // match filtering
+                tmp = mf.filter(tmp); // matching filtering
                 cout << tmp.I << ' ' << tmp.Q << endl;
 
-                mav0.push_front(amp(tmp)); // cross correlation
-                if (mav0.size()>MAV0_SIZE) {
-                    mav0.pop_back();
-                }
-
-                if (mav0.size()>=3) {
-                    if ((mav0[1]>mav0[0] && mav0[1]>=mav0[2]) || (mav0[1]>=mav0[0] && mav0[1]>mav0[2])) { // local peak found
-                        float peak = mav0[1];
-                        for (size_t i=3; i<MAV0_SIZE; i++) {
-                            if (mav0[i] > peak) {
-                                peak = mav0[i];
-                            }
-                        }
-                        if (peak==mav0[1]) {
-                            // regional peak found
-                            th = sum1*TH_COEF;
-
-                            mav1.push(peak);
-                            sum1 += peak;
-                            if (mav1.size()>MAV1_SIZE) {
-                                sum1 -= mav1.front();
-                                mav1.pop();
-                                // decisioning
-                                if (peak>th) {
-                                    // preamble got
-                                    break;
-                                }
-                            }
+                if (win0.slide(amp(tmp))) { // regional peak found
+                    float peak = win0.get_peak();
+                    float th = win1.sum()*TH_COEF; // prior sum is used
+                    if (win1.filled()) { // decisioning
+                        if (peak>th) { // preamble got
+                            break;
                         }
                     }
+                    win1.slide(peak);
                 }
             } else {
                 cout << "0.0 0.0" << endl;
             }
         }
-        // mf.clear();
     }
 
     // carrier sync
@@ -177,12 +190,17 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             tmp = lpf.filter(lo.mix(sig));
             cout << sig << ' ' << tmp.I << ' ' << tmp.Q << ' ';
             if (i % 4 == 0) { // decimation
-                tmp = nbf.filter(tmp); // fill in the nbf biquad iir filter
-                cout << tmp.I << ' ' << tmp.Q << endl;
-            } else {
-                cout << "0.0 0.0" << endl;
+                nbf.filter(tmp); // fill in the nbf biquad iir filter
             }
+            cout << "0.0 0.0" << endl;
         }
+
+        const size_t MAV0_SIZE = 32;
+        const size_t MAV1_SIZE = 32;
+
+        sample_t vco = {1.0f, 0.0f};
+        deque<float> mav0; // phase lock checker
+        deque<float> mav1; // freq stable checker
 
         for (size_t i=0; i<CARRIER_BODY-4096; i++) {
             float sig = q.read();
@@ -191,6 +209,14 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             if (i % 4 == 0) { // decimation
                 tmp = nbf.filter(tmp);
                 cout << tmp.I << ' ' << tmp.Q << endl;
+                double delta = atan2(tmp.Q*vco.I-tmp.I*vco.Q, tmp.I*vco.I+tmp.Q*vco.Q); // atan2(imag(tmp/vco), real(tmp/vco)), |vco|===1
+                if (i % 256==0) {
+                    mav0.push_front(delta);
+                    if (mav0.size()>MAV0_SIZE) {
+                        mav0.pop_back();
+                        
+                    }
+                }
             } else {
                 cout << "0.0 0.0" << endl;
             }
