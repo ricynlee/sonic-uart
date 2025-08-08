@@ -38,7 +38,7 @@ final = 0; % final freq offset in hz
 
 for i = 1:N
     delta(i) = atan2(imag(x(i)/y(i)), real(x(i)/y(i))); % phase detector
-    
+
     if mod(i-1, 64)==0
         mav0 = [delta(i); mav0(1:31)];
         if mav0(32)~=1024

@@ -13,7 +13,7 @@ for i=1:(2^ORDER-1)
     if ORDER==6
         % f=xor(lfsr(1), lfsr(2)); % 000011
         % f=xor(xor(lfsr(1), lfsr(2)), xor(lfsr(3), lfsr(6))); % 100111
-        f=xor(xor(lfsr(1), lfsr(3)), xor(lfsr(4), lfsr(6))); % 101101        
+        f=xor(xor(lfsr(1), lfsr(3)), xor(lfsr(4), lfsr(6))); % 101101
     elseif ORDER==8
         f=xor(xor(lfsr(1), lfsr(2)), xor(lfsr(6), lfsr(7)));
     end

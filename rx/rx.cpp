@@ -155,7 +155,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     }
 
     // preamble
-    {        
+    {
         sliwin_peak_finder win0(32); // regional peak finder
         sliwin_sum win1(32);
 
@@ -214,7 +214,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
                     mav0.push_front(delta);
                     if (mav0.size()>MAV0_SIZE) {
                         mav0.pop_back();
-                        
+
                     }
                 }
             } else {

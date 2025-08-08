@@ -66,7 +66,7 @@ void fir_filter::init(const float* const coef, int len /* order+1 */) {
     // for (int i=0; i<Dn/4; i++) {
     //     for (int j=0; j<8; j++)
     //         cout << Db[i].f[j] << ' ';
-    //     cout << endl;    
+    //     cout << endl;
     // }
 #else
     Db = (float*)malloc(Dn*sizeof(float) + Dn*sizeof(sample_t));
@@ -123,7 +123,7 @@ sample_t fir_filter::filter(const sample_t& in) {
     summed.d = _mm256_hadd_ps(summed.d, summed.d); // out.I = summed.f[3];
     summed.d = _mm256_hadd_ps(summed.d, summed.d); // out.Q = summed.f[4];
     // cout << "]) = " << summed.f[3] << endl << endl;
-    
+
     Di = (Di+Dn/4-1) % (Dn/4);
 
     return *(sample_t*)(summed.f+3);
@@ -149,7 +149,7 @@ sample_t fir_filter::filter(const sample_t& in) {
 
 // preamble generator
 float chirp(size_t index) {
-    const double u = 1280. * SAMPLE_RATE / PREAM_BODY / 2; 
+    const double u = 1280. * SAMPLE_RATE / PREAM_BODY / 2;
     double t = (double)index/SAMPLE_RATE;
     return (float)cos(2*PI*(-640*t+u*t*t));
 }
