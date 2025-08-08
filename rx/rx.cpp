@@ -37,12 +37,12 @@ private:
 public:
     sliwin_peak_finder(size_t);
     bool slide(float);
-    float get_peak(void);
+    float peak(void);
 };
 
 // global objects
 #define RX_BUF_DEPTH            1024
-#define TH_COEF                 0.4f
+#define TH_COEF                 0.45f
 
 #define PIx16 50.2654824574367
 
@@ -114,7 +114,7 @@ sliwin_peak_finder::sliwin_peak_finder(size_t n):sliwin(n) {
 
 bool sliwin_peak_finder::slide(float v) {
     _found = false;
-    slide(v);
+    sliwin::slide(v);
     if (size()>=3) {
         v = operator[](1); // hope that [1] is the peak
         if ((v>operator[](0) && v>=operator[](2)) || (v>=operator[](0) && v>operator[](2))) { // neighborhood peak found
@@ -130,7 +130,7 @@ bool sliwin_peak_finder::slide(float v) {
     return _found;
 }
 
-float sliwin_peak_finder::get_peak(void) {
+float sliwin_peak_finder::peak(void) {
     if (_found)
         return _peak;
     else
@@ -168,7 +168,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
                 cout << tmp.I << ' ' << tmp.Q << endl;
 
                 if (win0.slide(amp(tmp))) { // regional peak found
-                    float peak = win0.get_peak();
+                    float peak = win0.peak();
                     float th = win1.sum()*TH_COEF; // prior sum is used
                     if (win1.filled()) { // decisioning
                         if (peak>th) { // preamble got

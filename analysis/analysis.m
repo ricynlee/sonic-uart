@@ -28,7 +28,7 @@ for i=1:length(x)
             if mav0(2)==max(mav0)
                 % peak found
                 local_peak = mav0(2);
-                thresh(i-1) = sum_mav1*0.4;
+                thresh(i-1) = sum_mav1*0.45;
                 if mav1(end)>=0
                     sum_mav1 = sum_mav1 + local_peak - mav1(end);
                 else
