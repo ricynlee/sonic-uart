@@ -8,9 +8,6 @@
 #define SAMPLE_RATE     48000
 #define CARRIER_FRQ     18000
 
-// noise measuring
-#define NOISE_BODY      16384
-
 // chirp as preamble
 #define PREAM_BODY      65536
 #define BUBBLE_BODY     256
@@ -34,6 +31,15 @@ typedef struct {
         float Q;
     };
 } sample_t;
+
+typedef enum {
+    MOD_BPSK = 0, // 1 bit/sym
+    MOD_QPSK = 1, // 2 bit/sym
+    MOD_16QAM = 2, // 4 bit/sym
+    MOD_OFDM_BPSK = 4, // 16 bit/sym
+    MOD_OFDM_QPSK = 5, // 32 bit/sym
+    MOD_OFDM_16QAM = 6 // 64 bit/sym
+} mod_t;
 
 // declarations
 class fir_filter {

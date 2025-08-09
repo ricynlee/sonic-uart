@@ -285,18 +285,18 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         size_t n = fraction;
         fraction -= n;
 
-        sample_t sym = {0.0f, 0.0f};
+        sample_t constel = {0.0f, 0.0f};
         for (size_t i=0; i<n; i++) {
             bb = lpf.filter(lo.mix(q));
-            sym.I += bb.I;
-            sym.Q += bb.Q;
+            constel.I += bb.I;
+            constel.Q += bb.Q;
         }
 
-        sr.correct(sym);
-        header |= (sym.I>0 ? 0x0001 : 0x0000) << j;
+        sr.correct(constel);
+        header |= (constel.I>0 ? 0x0001 : 0x0000) << j;
     }
 
-    cout << header << endl;
+    // cout << header << endl;
 
     len_limit = 0;
 }
