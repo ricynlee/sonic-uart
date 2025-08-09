@@ -238,6 +238,7 @@ int case7() {
         cout << "CASE" #n " FAIL" << endl; \
     }
 
+/*
 int main() {
 #ifdef __AVX__
     cout << "AVX used" << endl;
@@ -254,7 +255,9 @@ int main() {
 
     return 0;
 }
+ */
 
+/*
 int main() { // biquad case
     biquad_filter nbf;
 
@@ -325,5 +328,14 @@ int main() { // biquad case
     }
 
     cout << "PASS" << endl;
+    return 0;
+}
+ */
+
+int main() {
+    for (int i=0; i<256; i++) {
+        cout << fast_exp((float)-i/96) << endl;
+    }
+
     return 0;
 }

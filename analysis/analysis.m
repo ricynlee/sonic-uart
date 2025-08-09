@@ -48,7 +48,7 @@ clf;
 hold on;
 plot(x, '.-');
 plot(thresh, 'r.');
-plot(((thresh>0) .* (x-thresh>0))*64, 'g-');
+plot(((thresh>0) .* (x-thresh>0 & x>0.1))*64, 'g-');
 hold off;
 grid on;
 

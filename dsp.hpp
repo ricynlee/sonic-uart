@@ -67,3 +67,4 @@ private:
 };
 
 float chirp(size_t);
+float fast_exp(float);

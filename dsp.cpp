@@ -1,4 +1,5 @@
 #include <cstring>
+#include <cstdint>
 #include <immintrin.h>
 #include <cmath>
 #include "dsp.hpp"
@@ -152,6 +153,17 @@ float chirp(size_t index) {
     const double u = 1280. * SAMPLE_RATE / PREAM_BODY / 2;
     double t = (double)index/SAMPLE_RATE;
     return (float)cos(2*PI*(-640*t+u*t*t));
+}
+
+// fast approximate exp
+float fast_exp(float v) {
+    union {
+        float f;
+        int32_t i;
+    } tmp;
+
+    tmp.i = (int32_t)(v*12102203.0f) + (int32_t)1065353216;
+    return tmp.f;
 }
 
 typedef struct {

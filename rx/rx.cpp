@@ -1,11 +1,9 @@
 #include "RtAudio.h"
 #include <iostream>
-#include <cstring>
 #include <cmath>
 #include "dsp.hpp"
 #include "fifo.hpp"
 #include "sliwin.hpp"
-#include <deque>
 
 using namespace std;
 
@@ -26,8 +24,8 @@ public:
     local_oscillator();
     sample_t mix(fifo<float>&);
     sample_t mix(float);
-    bool carrier_sync();
     double get_frq();
+    void set_frq(double);
 };
 
 class sliwin_peak_finder:protected sliwin {
@@ -43,6 +41,7 @@ public:
 // global objects
 #define RX_BUF_DEPTH            1024
 #define TH_COEF                 0.45f
+#define HARD_TH                 0.1f
 
 #define PIx16 50.2654824574367
 
@@ -85,10 +84,6 @@ local_oscillator::local_oscillator() {
     phi = 0;
 }
 
-bool local_oscillator::carrier_sync() {
-    return true;
-}
-
 sample_t local_oscillator::mix(fifo<float>& q) {
     float x = q.read();
     return mix(x);
@@ -106,6 +101,10 @@ sample_t local_oscillator::mix(float x) {
 
 double local_oscillator::get_frq() {
     return frq;
+}
+
+void local_oscillator::set_frq(double offset) {
+    frq += offset;
 }
 
 sliwin_peak_finder::sliwin_peak_finder(size_t n):sliwin(n) {
@@ -170,10 +169,8 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
                 if (win0.slide(amp(tmp))) { // regional peak found
                     float peak = win0.peak();
                     float th = win1.sum()*TH_COEF; // prior sum is used
-                    if (win1.filled()) { // decisioning
-                        if (peak>th) { // preamble got
-                            break;
-                        }
+                    if (win1.filled() && peak>HARD_TH && peak>th) { // decisioning
+                        break;
                     }
                     win1.slide(peak);
                 }
@@ -195,32 +192,68 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             cout << "0.0 0.0" << endl;
         }
 
-        const size_t MAV0_SIZE = 32;
-        const size_t MAV1_SIZE = 32;
 
+        const double beta = 0.001480778208934; // pll proportional coef
+        const double alpha = 0.002193245422464; // pll integral coef
+        double frq = 0.0;
+        double phi = 0.0;
         sample_t vco = {1.0f, 0.0f};
-        deque<float> mav0; // phase lock checker
-        deque<float> mav1; // freq stable checker
+
+        sliwin_stdd phi_win(32); // phase lock checker
+        sliwin_stdd frq_win(32); // frq stable checker
+
+        const int CC_UB = 96; // confidence coef, upper bound
+        const int CC_LB = 32; // confidence coef, lower bound
+        int cc = CC_UB; // confidence coef
+        int sc = 0; // (frq) stable count
+        float frq_offset;
+        float confidence; // snr related
 
         for (size_t i=0; i<CARRIER_BODY-4096; i++) {
             float sig = q.read();
             tmp = lpf.filter(lo.mix(sig));
             cout << sig << ' ' << tmp.I << ' ' << tmp.Q << ' ';
-            if (i % 4 == 0) { // decimation
+            if (i % 4 == 0) { // 1/4 decimation
                 tmp = nbf.filter(tmp);
                 cout << tmp.I << ' ' << tmp.Q << endl;
-                double delta = atan2(tmp.Q*vco.I-tmp.I*vco.Q, tmp.I*vco.I+tmp.Q*vco.Q); // atan2(imag(tmp/vco), real(tmp/vco)), |vco|===1
-                if (i % 256==0) {
-                    mav0.push_front(delta);
-                    if (mav0.size()>MAV0_SIZE) {
-                        mav0.pop_back();
+                double delta = atan2((double)(tmp.Q*vco.I-tmp.I*vco.Q), (double)(tmp.I*vco.I+tmp.Q*vco.Q)); // atan2(imag(tmp/vco), real(tmp/vco)), |vco|===1
+                if (i % 256==0) { // 1/256 decimation
+                    phi_win.slide(delta);
+                    if (phi_win.filled()) {
+                        if (phi_win.stdd()<PI/9) {
+                            cc = cc - 1;
+                            if (cc<CC_LB) cc = CC_LB;
+                        } else {
+                            cc = cc + 1;
+                            if (cc>CC_UB) cc = CC_UB;
+                        }
+                    }
 
+                    frq_win.slide(delta);
+                    if (frq_win.filled()) {
+                        if (frq_win.stdd()<0.025) {
+                            sc = sc + 1;
+                            frq_offset = frq_win.mean();
+                            confidence = 1-fast_exp((float)-sc/cc);
+                        }
                     }
                 }
+
+                // pll
+                frq += beta*delta;
+                phi += alpha*delta + PIx16*frq/8.0/SAMPLE_RATE/4; // 4 stands for decimation rate
+                if (phi>PIx16) phi-=PIx16;
+                if (phi<-PIx16) phi+=PIx16;
+                vco.I = cos(phi);
+                vco.Q = sin(phi);
             } else {
                 cout << "0.0 0.0" << endl;
             }
         }
+
+        lo.set_frq(frq_offset);
+        cerr << "Carrier @ " << lo.get_frq() << endl;
+        cerr << "Confidence " << confidence << endl;
     }
 
     len_limit = 0;

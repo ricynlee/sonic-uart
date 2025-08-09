@@ -2,6 +2,8 @@
 
 #include <cstddef>
 
+// sliding windows
+
 class sliwin {
 protected:
     float* _data;
