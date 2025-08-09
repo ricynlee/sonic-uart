@@ -1,9 +1,8 @@
 clc;
-clear;
 
 %% stimulus params
 FS = 12e3; % sampling rate
-N = (65536-4096)/4;
+N = (65536-3072)/4;
 F = rand()*4-2; % freq offset
 PHI = 2*pi*rand(); % phase
 SNR = -15;
@@ -21,7 +20,11 @@ alpha = (2*pi*LB)^2/(FS*G); % integral
 
 %% sim
 t = (0:N-1).'/FS;
-x = awgn(exp(1j*2*pi*F.*t+PHI), SNR, 'measured');
+if exist('rx', 'var')
+    x = rx(1:4:end,4) + 1j*rx(1:4:end,5);
+else
+    x = awgn(exp(1j*2*pi*F.*t+PHI), SNR, 'measured');
+end
 y = ones(N, 1);
 f = zeros(N, 1);
 phi = zeros(N, 1);
@@ -88,7 +91,10 @@ clf;
 subplot(311);
 plot([0, t(N)], [F, F], ':', 'linewidth', 2);
 hold on;
-plot(t, f, 'r');
+plot(t, f, 'b');
+if exist('rx', 'var')
+    plot(t, rx(1:4:end,7), 'r.', 'markersize', 1);
+end
 % plot(t, lock*4-2, 'g', 'displayname', 'Phase lock');
 % plot(t, stable*4-2, 'c', 'displayname', 'Frq stable');
 hold off;
@@ -106,13 +112,18 @@ else
     improvement = abs(final);
     improvement = sprintf('%.3fhz deviated', improvement);
 end
-exp = @(x) typecast(int32(single(x)*single(12102203)) + int32(1065353216), 'single');
-title(sprintf('final=%.3fHz confidence=%.3f\n\\Delta=%.3fHz %s',final, 1-exp(-sc/cc), abs(final-F), improvement));
+fast_exp = @(x) typecast(int32(single(x)*single(12102203)) + int32(1065353216), 'single');
+title(sprintf('final=%.3fHz confidence=%.3f\n\\Delta=%.3fHz %s',final, 1-fast_exp(-sc/cc), abs(final-F), improvement));
 labelled = findobj(gca, 'Type', 'line', '-not', 'DisplayName', '');
 if ~isempty(labelled); legend(labelled, 'location', 'best'); end
 
 subplot(312);
 plot(t, delta, '.', 'markersize', 1);
+if exist('rx', 'var')
+    hold on;
+    plot(t, rx(1:4:end,6), 'r.', 'markersize', 1);
+    hold off;
+end
 grid on;
 axis([min(t) max(t) -pi pi]);
 title('Phase error detected');

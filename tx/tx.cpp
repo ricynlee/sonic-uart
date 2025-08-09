@@ -97,17 +97,17 @@ void tx_modulate(const char* const data, unsigned len) {
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 
-    // // frame length in octets
-    // len &= ~((-1)<<LENGTH_BITS);
-    // for (int j=0; j<LENGTH_BITS; j++) {
-    //     int bit = (len>>j) & 1; // lsb first
-    //     constel.I = (1-2*bit);
-    //     constel.Q = 0;
-    //     for (int i=0; i<SYMBOL_BODY; i++) {
-    //         sample = lpf.filter(constel);
-    //         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
-    //     }
-    // }
+    // frame length in octets
+    unsigned short header = 12345;
+    for (int j=0; j<16; j++) {
+        int bit = (header>>j) & 1; // lsb first
+        constel.I = (1-2*bit);
+        constel.Q = 0;
+        for (int i=0; i<SYMBOL_BODY; i++) {
+            sample = lpf.filter(constel);
+            q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+        }
+    }
 
     // // frame body
     // for (unsigned k=0; k<len; k++) {

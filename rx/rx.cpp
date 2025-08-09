@@ -26,6 +26,7 @@ public:
     sample_t mix(float);
     double get_frq();
     void set_frq(double);
+    void rst_frq(void);
 };
 
 class sliwin_peak_finder:protected sliwin {
@@ -40,7 +41,7 @@ public:
 
 // global objects
 #define RX_BUF_DEPTH            1024
-#define TH_COEF                 0.45f
+#define TH_COEF                 0.5f
 #define HARD_TH                 0.1f
 
 #define PIx16 50.2654824574367
@@ -49,17 +50,11 @@ public:
 static const float LPF[LPF_LEN] = LPF_COEF;
 
 // chirp preamble match filter coef
-static float* MF;
-
-static sample_t tmp;
-
 static fifo<float> q; // inter-thread data queue
-
 static local_oscillator lo;
 static fir_filter lpf;
 static fir_filter mf;
 static biquad_filter nbf;
-static scale_rotate sr;
 
 // functions
 inline float amp(const sample_t& x) {
@@ -80,8 +75,8 @@ void scale_rotate::correct(sample_t& x) {
 }
 
 local_oscillator::local_oscillator() {
-    frq = CARRIER_FRQ;
     phi = 0;
+    rst_frq();
 }
 
 sample_t local_oscillator::mix(fifo<float>& q) {
@@ -105,6 +100,10 @@ double local_oscillator::get_frq() {
 
 void local_oscillator::set_frq(double offset) {
     frq += offset;
+}
+
+void local_oscillator::rst_frq(void) {
+    frq = CARRIER_FRQ;
 }
 
 sliwin_peak_finder::sliwin_peak_finder(size_t n):sliwin(n) {
@@ -153,50 +152,45 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         return;
     }
 
-    // preamble
-    {
+    sample_t bb; // base-band sample
+
+    float pream_amp_ref; // amplitude reference
+    { // preamble
         sliwin_peak_finder win0(32); // regional peak finder
         sliwin_sum win1(32);
 
         for (unsigned short i=0; ; i++) {
-            float sig = q.read();
-            tmp = lpf.filter(lo.mix(sig));
-            cout << sig << ' ' << tmp.I << ' ' << tmp.Q << ' ';
-            if (i % 8 == 0) { // decimation
-                tmp = mf.filter(tmp); // matching filtering
-                cout << tmp.I << ' ' << tmp.Q << endl;
+            bb = lpf.filter(lo.mix(q));
+            if (i % 8 == 0) { // 1/8 decimation
+                bb = mf.filter(bb); // matching filtering
 
-                if (win0.slide(amp(tmp))) { // regional peak found
+                if (win0.slide(amp(bb))) { // regional peak found
                     float peak = win0.peak();
                     float th = win1.sum()*TH_COEF; // prior sum is used
                     if (win1.filled() && peak>HARD_TH && peak>th) { // decisioning
+                        pream_amp_ref = peak;
                         break;
                     }
                     win1.slide(peak);
                 }
-            } else {
-                cout << "0.0 0.0" << endl;
             }
         }
     }
 
-    // carrier sync
-    {
+    float timing_scale_coef = 1;
+    { // carrier sync
         for (unsigned short i=0; i<BUBBLE_BODY-8+1024; i++) { // skip the bubble and coarsely fill nbf (approx. 1024-point delay), match filter has 8-point delay
-            float sig = q.read();
-            tmp = lpf.filter(lo.mix(sig));
-            cout << sig << ' ' << tmp.I << ' ' << tmp.Q << ' ';
+            bb = lpf.filter(lo.mix(q));
             if (i % 4 == 0) { // decimation
-                nbf.filter(tmp); // fill in the nbf biquad iir filter
+                nbf.filter(bb); // fill in the nbf biquad iir filter
             }
-            cout << "0.0 0.0" << endl;
         }
-
 
         const double beta = 0.001480778208934; // pll proportional coef
         const double alpha = 0.002193245422464; // pll integral coef
         double frq = 0.0;
         double phi = 0.0;
+        double delta;
         sample_t vco = {1.0f, 0.0f};
 
         sliwin_stdd phi_win(32); // phase lock checker
@@ -209,14 +203,11 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         float frq_offset;
         float confidence; // snr related
 
-        for (size_t i=0; i<CARRIER_BODY-4096; i++) {
-            float sig = q.read();
-            tmp = lpf.filter(lo.mix(sig));
-            cout << sig << ' ' << tmp.I << ' ' << tmp.Q << ' ';
+        for (size_t i=0; i<CARRIER_BODY-3072; i++) {
+            bb = lpf.filter(lo.mix(q));
             if (i % 4 == 0) { // 1/4 decimation
-                tmp = nbf.filter(tmp);
-                cout << tmp.I << ' ' << tmp.Q << endl;
-                double delta = atan2((double)(tmp.Q*vco.I-tmp.I*vco.Q), (double)(tmp.I*vco.I+tmp.Q*vco.Q)); // atan2(imag(tmp/vco), real(tmp/vco)), |vco|===1
+                bb = nbf.filter(bb);
+                delta = atan2((double)(bb.Q*vco.I-bb.I*vco.Q), (double)(bb.I*vco.I+bb.Q*vco.Q)); // atan2(imag(bb/vco), real(bb/vco)), |vco|===1
                 if (i % 256==0) { // 1/256 decimation
                     phi_win.slide(delta);
                     if (phi_win.filled()) {
@@ -228,33 +219,84 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
                             if (cc>CC_UB) cc = CC_UB;
                         }
                     }
+                }
 
-                    frq_win.slide(delta);
+                if (i % 256==128) { // 1/256 decimation
+                    frq_win.slide(frq);
                     if (frq_win.filled()) {
                         if (frq_win.stdd()<0.025) {
                             sc = sc + 1;
                             frq_offset = frq_win.mean();
-                            confidence = 1-fast_exp((float)-sc/cc);
+                            confidence = 1.0f - fast_exp((float)-sc/cc);
                         }
                     }
                 }
 
                 // pll
                 frq += beta*delta;
-                phi += alpha*delta + PIx16*frq/8.0/SAMPLE_RATE/4; // 4 stands for decimation rate
+                phi += alpha*delta + PIx16*frq/8.0/(SAMPLE_RATE/4); // 4 stands for decimation rate
                 if (phi>PIx16) phi-=PIx16;
                 if (phi<-PIx16) phi+=PIx16;
                 vco.I = cos(phi);
                 vco.Q = sin(phi);
-            } else {
-                cout << "0.0 0.0" << endl;
             }
         }
-
         lo.set_frq(frq_offset);
-        cerr << "Carrier @ " << lo.get_frq() << endl;
-        cerr << "Confidence " << confidence << endl;
+        timing_scale_coef =  1.0f - frq_offset/CARRIER_FRQ;
+        nbf.clear();
     }
+
+    scale_rotate sr;
+    float fraction; // fractional part of sampling length
+    { // amp/phi correction
+        fraction = (BUBBLE_BODY+PREAM_BODY)*timing_scale_coef + 0.5 - (BUBBLE_BODY+PREAM_BODY-2048); // +0.5 for rounding
+        size_t n = fraction;
+        fraction -= n;
+
+        sample_t ref = {0.0f, 0.0f};
+        for (size_t i=0; i<n; i++) {
+            bb = lpf.filter(lo.mix(q));
+            ref.I += bb.I;
+            ref.Q += bb.Q;
+        }
+
+        float carrier_amp_ref = amp(ref);
+        if (carrier_amp_ref>pream_amp_ref*4 || carrier_amp_ref<pream_amp_ref/4) { // carrier_amp_ref too large/small, something is wrong
+            cerr << "Inconsistent signal amplitude. Data reception aborted." << endl;
+            len_limit = 0;
+            return;
+        }
+
+        ref.I /= (2048/SYMBOL_BODY);
+        ref.Q /= (2048/SYMBOL_BODY);
+        sr.init(ref);
+    }
+
+    fraction += BUBBLE_BODY*timing_scale_coef;
+    size_t n = fraction;
+    fraction -= n;
+    for (unsigned short i=0; i<n; i++) { // skip the bubble
+        lpf.filter(lo.mix(q));
+    }
+
+    unsigned short header = 0;
+    for (size_t j=0; j<16; j++) { // header, bpsk
+        fraction += SYMBOL_BODY*timing_scale_coef;
+        size_t n = fraction;
+        fraction -= n;
+
+        sample_t sym = {0.0f, 0.0f};
+        for (size_t i=0; i<n; i++) {
+            bb = lpf.filter(lo.mix(q));
+            sym.I += bb.I;
+            sym.Q += bb.Q;
+        }
+
+        sr.correct(sym);
+        header |= (sym.I>0 ? 0x0001 : 0x0000) << j;
+    }
+
+    cout << header << endl;
 
     len_limit = 0;
 }
@@ -263,13 +305,13 @@ void init_filters() {
     // initialize filters
     lpf.init(LPF, LPF_LEN);
 
-    const size_t MF_LEN = PREAM_BODY/8;
-    MF = (float*)malloc(sizeof(float)*MF_LEN);
+    const size_t MF_LEN = PREAM_BODY/8; // 1/8 decimated
+    float* MF_COEF = (float*)malloc(sizeof(float)*MF_LEN);
     for (size_t i=0; i<MF_LEN; i++) {
-        MF[i] = chirp(PREAM_BODY-i*8);
+        MF_COEF[i] = chirp(PREAM_BODY-i*8)*(0.54f-0.46f*cos(2*PI*i/MF_LEN)); // hamming windowed
     }
-    mf.init(MF, MF_LEN);
-    free(MF);
+    mf.init(MF_COEF, MF_LEN);
+    free(MF_COEF);
 
     const float IIR[6] = { // chebyshev type ii, 2nd order, fs 12k, fstop 40, astop 20db
         0.0993952155113220, -0.198703244328499, 0.0993952155113220, // B, numerator
