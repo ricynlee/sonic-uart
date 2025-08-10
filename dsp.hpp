@@ -39,13 +39,24 @@ typedef struct {
 typedef enum {
     MOD_BPSK = 0, // 1 bit/sym
     MOD_QPSK = 1, // 2 bit/sym
-    MOD_16QAM = 2, // 4 bit/sym
-    MOD_64QAM = 3, // 8 bit/sym
+    MOD_QAM16 = 2, // 4 bit/sym
+    MOD_QAM64 = 3, // 8 bit/sym
     MOD_OFDM_BPSK = 4, // 16 bit/sym
     MOD_OFDM_QPSK = 5, // 32 bit/sym
-    MOD_OFDM_16QAM = 6, // 64 bit/sym
-    MOD_OFDM_64QAM = 7 // 128 bit/sym
+    MOD_OFDM_QAM16 = 6, // 64 bit/sym
+    MOD_OFDM_QAM64 = 7 // 128 bit/sym
 } mod_t;
+
+typedef union {
+    int8_t bpsk;
+    int8_t qpsk;
+    int8_t qam16;
+    int8_t qam64;
+    int8_t ofdm_bpsk[16];
+    int8_t ofdm_qpsk[16];
+    int8_t ofdm_qam16[16];
+    int8_t ofdm_qam64[16];
+} sym_t;
 
 // declarations
 class fir_filter {

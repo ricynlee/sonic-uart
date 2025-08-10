@@ -116,39 +116,40 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
     }
 
     // frame body
-    int bps = (int)(1<<mod);
-    size_t loop = ((int)len+(bps-8)/8)*8/bps;
-    for (size_t j=0; j<loop; j++) {
-        int64_t sym = 0;
-        memcpy(&sym, data+j*bps/8, (len-j*bps/8)<(bps+7)/8 ? (len-j*bps/8) : (bps+7)/8);
-        sym >>= (j % ((8+bps-1)/bps))*bps;
-        sym &= ((int64_t)1<<bps)-1;
-        cout << "sym " << sym << endl;
-        switch (mod) {
-            default /* BPSK */:
-                constel.I = (2*sym-1);
-                constel.Q = 0;
-                break;
-            case MOD_QPSK:
-                constel.I = 0.7071*(2*(sym & 1)-1);
-                constel.Q = 0.7071*(2*(sym >> 1)-1);
-                break;
-            // not implemented yet below
-            case MOD_16QAM:
-            case MOD_64QAM:
-            case MOD_OFDM_BPSK:
-            case MOD_OFDM_QPSK:
-            case MOD_OFDM_16QAM:
-            case MOD_OFDM_64QAM:
-                constel.I = 0;
-                constel.Q = 0;
-                break;
-        }
-        cout << constel.I << ' ' << constel.Q << endl;
-        for (size_t i=0; i<SYMBOL_BODY; i++) {
-            sample = lpf.filter(constel);
-            q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
-            // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
+    if (len) {
+        size_t bps = (int)(1<<mod);
+        size_t loop = ((int)len+(bps-8)/8)*8/bps;
+        for (size_t j=0; j<loop; j++) {
+            sym_t sym;
+            memset(&sym, 0, (bps+7)/8);
+            memcpy(&sym, data+j*bps/8, (len-j*bps/8)<(bps+7)/8 ? (len-j*bps/8) : (bps+7)/8);
+            sym.bpsk >>= (j % ((8+bps-1)/bps))*bps; // bpsk here stands for any non-ofdm symbol
+            sym.bpsk &= (1<<((bps+7)%8+1))-1; // bpsk here stands for any non-ofdm symbol
+            switch (mod) {
+                default /* BPSK */:
+                    constel.I = (2*sym.bpsk-1);
+                    constel.Q = 0;
+                    break;
+                case MOD_QPSK:
+                    constel.I = 0.7071*(2*(sym.qpsk & 1)-1);
+                    constel.Q = 0.7071*(2*(sym.qpsk >> 1)-1);
+                    break;
+                // not implemented yet below
+                case MOD_QAM16:
+                case MOD_QAM64:
+                case MOD_OFDM_BPSK:
+                case MOD_OFDM_QPSK:
+                case MOD_OFDM_QAM16:
+                case MOD_OFDM_QAM64:
+                    constel.I = 0;
+                    constel.Q = 0;
+                    break;
+            }
+            for (size_t i=0; i<SYMBOL_BODY; i++) {
+                sample = lpf.filter(constel);
+                q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+                // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
+            }
         }
     }
 

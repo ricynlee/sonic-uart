@@ -148,12 +148,14 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
     return 0;
 }
 
-int64_t sym_decision(sample_t constel, mod_t mod=MOD_BPSK) {
+void sym_decision(sym_t& sym, sample_t constel, mod_t mod=MOD_BPSK) {
     switch (mod) {
         default: /* BPSK */
-            return (constel.I>0);
+            sym.bpsk = (constel.I>0);
+            break;
         MOD_QPSK:
-            return ((constel.Q>0) << 1) | (constel.I>0);
+            sym.qpsk = ((constel.Q>0) << 1) | (constel.I>0);
+            return;
         // other schemes are not implemented yet
     }
 }
@@ -303,8 +305,10 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
             constel.Q += bb.Q;
         }
 
+        sym_t sym;
         sr.correct(constel);
-        header |= (sym_decision(constel) << j);
+        sym_decision(sym, constel);
+        header |= (sym.bpsk << j);
     }
 
     cout << hex << header << endl;
