@@ -43,7 +43,7 @@ typedef enum {
     MOD_64QAM = 3, // 8 bit/sym
     MOD_OFDM_BPSK = 4, // 16 bit/sym
     MOD_OFDM_QPSK = 5, // 32 bit/sym
-    MOD_OFDM_16QAM = 6 // 64 bit/sym
+    MOD_OFDM_16QAM = 6, // 64 bit/sym
     MOD_OFDM_64QAM = 7 // 128 bit/sym
 } mod_t;
 

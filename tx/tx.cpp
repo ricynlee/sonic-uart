@@ -72,6 +72,7 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
         constel.Q = 0;
         sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+        // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
     }
 
     // bubble: avoid preamble-carrier interference
@@ -80,6 +81,7 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
     for (size_t i=0; i<BUBBLE_BODY; i++) {
         sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+        // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
     }
 
     // carrier: for freq sync
@@ -88,6 +90,7 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
         constel.Q = 0;
         sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+        // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
     }
 
     // bubble: avoid carrier-payload interference
@@ -96,6 +99,7 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
     for (size_t i=0; i<BUBBLE_BODY; i++) {
         sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+        // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
     }
 
     // header in bpsk: 3b modulation | 13b byte size
@@ -107,16 +111,19 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
         for (size_t i=0; i<SYMBOL_BODY; i++) {
             sample = lpf.filter(constel);
             q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+            // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
         }
     }
 
     // frame body
-    int bps = (int)(2<<mod);
+    int bps = (int)(1<<mod);
     size_t loop = ((int)len+(bps-8)/8)*8/bps;
     for (size_t j=0; j<loop; j++) {
-        uint64_t sym = 0;
+        int64_t sym = 0;
         memcpy(&sym, data+j*bps/8, (len-j*bps/8)<(bps+7)/8 ? (len-j*bps/8) : (bps+7)/8);
         sym >>= (j % ((8+bps-1)/bps))*bps;
+        sym &= ((int64_t)1<<bps)-1;
+        cout << "sym " << sym << endl;
         switch (mod) {
             default /* BPSK */:
                 constel.I = (2*sym-1);
@@ -137,9 +144,11 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
                 constel.Q = 0;
                 break;
         }
+        cout << constel.I << ' ' << constel.Q << endl;
         for (size_t i=0; i<SYMBOL_BODY; i++) {
             sample = lpf.filter(constel);
             q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+            // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
         }
     }
 
@@ -149,6 +158,7 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
     for (size_t i=0; i<TX_BUF_DEPTH; i++) {
         sample = lpf.filter(constel);
         q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+        // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
     }
 }
 
@@ -164,7 +174,7 @@ void ui(void) {
 
     string s;
     while (true) {
-        cout << "> ";
+        cerr << "> ";
         if (getline(cin, s).eof()) {
             this_thread::sleep_for(chrono::milliseconds(200)); // avoid jamming of typing
             tx_modulate(NULL, 0);

@@ -1,5 +1,6 @@
 #include "RtAudio.h"
 #include <iostream>
+#include <iomanip>
 #include <cmath>
 #include "dsp.hpp"
 #include "fifo.hpp"
@@ -147,14 +148,12 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
     return 0;
 }
 
-uint64_t sym_decision(sample_t constel, mod_t mod=MOD_BPSK) {
+int64_t sym_decision(sample_t constel, mod_t mod=MOD_BPSK) {
     switch (mod) {
         default: /* BPSK */
-            sym = (constel.I>0);
-            break;
+            return (constel.I>0);
         MOD_QPSK:
-            sym = ((constel.Q>0) << 1) | (constel.I>0);
-            break;
+            return ((constel.Q>0) << 1) | (constel.I>0);
         // other schemes are not implemented yet
     }
 }
@@ -308,7 +307,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         header |= (sym_decision(constel) << j);
     }
 
-    // cout << header << endl;
+    cout << hex << header << endl;
 
     len_limit = 0;
 }
