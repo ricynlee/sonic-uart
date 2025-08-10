@@ -110,31 +110,38 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
         }
     }
 
-    // // frame body
-    // uint64_t sym = 0;
-    // size_t loop = ((int)len+((int)(2<<mod)-8)/8)*8/(int)(2<<mod);
-    // for (size_t k=0; k<loop; k++) {
-    //     size_t 
-    //     for (size_t j=0; j<8; j+=MODEM) {
-    //         switch (MODEM) {
-    //             default /* BPSK */:
-    //                 constel.I = (1-2*sym);
-    //                 constel.Q = 0;
-    //                 break;
-    //             case QPSK:
-    //                 constel.I = 0.75 - 1.5*(sym & 1);
-    //                 constel.Q = 0.75 - 1.5*(sym >> 1);
-    //                 break;
-    //             case QAM16:
-    //                 constel.I = 0.75 - 0.5*(sym & 3);
-    //                 constel.Q = 0.75 - 0.5*(sym >> 2);
-    //         }
-    //         for (size_t i=0; i<SYMBOL_BODY; i++) {
-    //             sample = lpf.filter(constel);
-    //             q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
-    //         }
-    //     }
-    // }
+    // frame body
+    int bps = (int)(2<<mod);
+    size_t loop = ((int)len+(bps-8)/8)*8/bps;
+    for (size_t j=0; j<loop; j++) {
+        uint64_t sym = 0;
+        memcpy(&sym, data+j*bps/8, (len-j*bps/8)<(bps+7)/8 ? (len-j*bps/8) : (bps+7)/8);
+        sym >>= (j % ((8+bps-1)/bps))*bps;
+        switch (mod) {
+            default /* BPSK */:
+                constel.I = (2*sym-1);
+                constel.Q = 0;
+                break;
+            case MOD_QPSK:
+                constel.I = 0.7071*(2*(sym & 1)-1);
+                constel.Q = 0.7071*(2*(sym >> 1)-1);
+                break;
+            // not implemented yet below
+            case MOD_16QAM:
+            case MOD_64QAM:
+            case MOD_OFDM_BPSK:
+            case MOD_OFDM_QPSK:
+            case MOD_OFDM_16QAM:
+            case MOD_OFDM_64QAM:
+                constel.I = 0;
+                constel.Q = 0;
+                break;
+        }
+        for (size_t i=0; i<SYMBOL_BODY; i++) {
+            sample = lpf.filter(constel);
+            q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+        }
+    }
 
     // pick up remainders in the filter & protective margin
     constel.I = 0;

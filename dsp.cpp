@@ -150,9 +150,9 @@ sample_t fir_filter::filter(const sample_t& in) {
 
 // preamble generator
 float chirp(size_t index) {
-    const double u = 1280. * SAMPLE_RATE / PREAM_BODY / 2;
+    const double u = 1500. * SAMPLE_RATE / PREAM_BODY / 2;
     double t = (double)index/SAMPLE_RATE;
-    return (float)cos(2*PI*(-640*t+u*t*t));
+    return (float)cos(2*PI*(-750*t+u*t*t));
 }
 
 // fast approximate exp
