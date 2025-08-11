@@ -5,7 +5,7 @@ FS = 12e3; % sampling rate
 N = (65536-3072)/4;
 F = rand()*4-2; % freq offset
 PHI = 2*pi*rand(); % phase
-SNR = -15;
+SNR = -0;
 
 %% pll params
 LB = 2; % loop bandwidth in hz
@@ -24,6 +24,12 @@ if exist('rx', 'var')
     x = rx(1:4:end,4) + 1j*rx(1:4:end,5);
 else
     x = awgn(exp(1j*2*pi*F.*t+PHI), SNR, 'measured');
+    % whether narrow-band IIR filter can be used for carrier syncking - yes
+%     x = filter( ...
+%         [0.0993952155113220, -0.198703244328499, 0.0993952155113220], ...
+%         [1, -1.98742473125458, 0.987511932849884], ...
+%         x ...
+%     );
 end
 y = ones(N, 1);
 f = zeros(N, 1);
@@ -136,3 +142,19 @@ hold off;
 grid on;
 xlim([min(t) max(t)]);
 title('Input signal');
+
+%%
+% N = 65536*4;
+% phi = unwrap(angle(freqz( ...
+%     [0.0993952155113220, -0.198703244328499, 0.0993952155113220], ...
+%     [1, -1.98742473125458, 0.987511932849884], N)));
+% stdd1 = std(phi(1:96))
+% plot((0:N-2)*12000/N, phi(2:N)-phi(1:N-1), '.');
+% phi = unwrap(angle(freqz(Num, Den, N)));
+% stdd2 = std(phi(1:96))
+% hold on;
+% plot((0:N-2)*12000/N, phi(2:N)-phi(1:N-1), 'r.');
+% hold off;
+% axis([0 4 -0.01 0]);
+% grid on;
+
