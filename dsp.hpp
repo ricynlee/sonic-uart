@@ -81,5 +81,15 @@ private:
     void* data;
 };
 
+class ofdm_modem {
+public:
+    ofdm_modem();
+    ~ofdm_modem();
+    modulate(const sample_t* const, sample_t* const);
+    demodulate(sample_t* const, sample_t* const);
+private:
+    void* data;
+};
+
 float chirp(size_t);
 float fast_exp(float);

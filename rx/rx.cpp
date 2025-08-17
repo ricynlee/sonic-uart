@@ -153,7 +153,7 @@ void sym_decision(sym_t& sym, sample_t constel, mod_t mod=MOD_BPSK) {
         default: /* BPSK */
             sym.bpsk = (constel.I>0);
             break;
-        MOD_QPSK:
+        case MOD_QPSK:
             sym.qpsk = ((constel.Q>0) << 1) | (constel.I>0);
             return;
         // other schemes are not implemented yet
