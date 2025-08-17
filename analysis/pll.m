@@ -157,4 +157,3 @@ title('Input signal');
 % hold off;
 % axis([0 4 -0.01 0]);
 % grid on;
-

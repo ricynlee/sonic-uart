@@ -3,6 +3,7 @@
 #include <thread>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include "fifo.hpp"
 #include "dsp.hpp"
 

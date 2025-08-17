@@ -174,6 +174,9 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
         for (unsigned short i=0; ; i++) {
             bb = lpf.filter(lo.mix(q));
+
+            cout << bb.I << ' ' << bb.Q << endl;
+
             if (i % 8 == 0) { // 1/8 decimation
                 bb = mf.filter(bb); // matching filtering
 
@@ -194,6 +197,9 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
     { // carrier sync
         for (unsigned short i=0; i<BUBBLE_BODY-8+1024; i++) { // skip the bubble and coarsely fill nbf (approx. 1024-point delay), match filter has 8-point delay
             bb = lpf.filter(lo.mix(q));
+
+            cout << bb.I << ' ' << bb.Q << endl;
+
             if (i % 4 == 0) { // decimation
                 nbf.filter(bb); // fill in the nbf biquad iir filter
             }
@@ -218,6 +224,9 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
         for (size_t i=0; i<CARRIER_BODY-3072; i++) {
             bb = lpf.filter(lo.mix(q));
+
+            cout << bb.I << ' ' << bb.Q << endl;
+
             if (i % 4 == 0) { // 1/4 decimation
                 bb = nbf.filter(bb);
                 delta = atan2((double)(bb.Q*vco.I-bb.I*vco.Q), (double)(bb.I*vco.I+bb.Q*vco.Q)); // atan2(imag(bb/vco), real(bb/vco)), |vco|===1
@@ -311,7 +320,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         header |= (sym.bpsk << j);
     }
 
-    cout << hex << header << endl;
+    cerr << "Header 0x" << hex << header << endl;
 
     len_limit = 0;
 }

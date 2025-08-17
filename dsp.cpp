@@ -186,17 +186,14 @@ typedef struct {
 #define IIR_Dz (((biquad_filter_data_t*)data)->z)
 
 biquad_filter::biquad_filter() {
-    data = NULL;
+    data = (biquad_filter_data_t*) malloc(sizeof(biquad_filter_data_t));
 }
 
 biquad_filter::~biquad_filter() {
-    if (data) {
-        free(data);
-    }
+    free(data);
 }
 
 void biquad_filter::init(const float* const coef) {
-    data = (biquad_filter_data_t*) malloc(sizeof(biquad_filter_data_t));
     memcpy(IIR_Db, coef, 3*sizeof(float));
     memcpy(IIR_Da+1, coef+4, 2*sizeof(float));
     clear();
@@ -220,43 +217,57 @@ sample_t biquad_filter::filter(const sample_t& in) { // direct form ii
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // OFDM modem (FFT)
 ///////////////////////////////////////////////////////////////////////////////////////////////
-// static sample_t weight_fft(int butterfly_index, int weight_index) {
-//     sample_t result;
-//     result.I = cos(2 * M_PI * butterfly_index * weight_index / 512);
-//     result.Q = -sin(2 * M_PI * butterfly_index * weight_index / 512);
-//     return result;
-// }
-// 
-// static sample_t weight_x2_ifft(int butterfly_index, int weight_index) {
-//     sample_t result;
-//     // result.I = cos(2 * M_PI * butterfly_index * weight_index / 512) / 8; // unscaled
-//     // result.Q = sin(2 * M_PI * butterfly_index * weight_index / 512) / 8; // unscaled
-//     result.I = cos(2 * M_PI * butterfly_index * weight_index / 512) / 4; // scaled, (8/4)^3=8 times larger for 512-pt ifft
-//     result.Q = sin(2 * M_PI * butterfly_index * weight_index / 512) / 4; // scaled, (8/4)^3=8 times larger for 512-pt ifft
-//     return result;
-// }
-// 
-// static sample_t cmplx_add(sample_t x, sample_t y) {
-//     sample_t result;
-//     result.I = x.I + y.I;
-//     result.Q = x.Q + y.Q;
-//     return result;
-// }
-// 
-// static sample_t cmplx_sub(sample_t x, sample_t y) {
-//     sample_t result;
-//     result.I = x.I - y.I;
-//     result.Q = x.Q - y.Q;
-//     return result;
-// }
-// 
-// static sample_t cmplx_mult(sample_t x, sample_t y) {
-//     sample_t result;
-//     result.I = x.I * y.I - x.Q * y.Q;
-//     result.Q = x.Q * y.I + x.I * y.Q;
-//     return result;
-// }
-// 
+typedef struct {
+    sample_t* buffer;
+    sample_t* w512_fft;
+    sample_t* w512_ifft;
+} ofdm_modem_data_t;
+
+#define OFDM_BUF    (((ofdm_modem_data_t*)data)->buffer)
+#define OFDM_FFTW   (((ofdm_modem_data_t*)data)->w512_fft)
+#define OFDM_IFFTW  (((ofdm_modem_data_t*)data)->w512_ifft)
+
+ofdm_modem::ofdm_modem() {
+    data = (void*)new ofdm_modem_data_t;
+    OFDM_BUF = (sample_t*) malloc(sizeof(sample_t)*512);
+    OFDM_FFTW = (sample_t*) malloc(sizeof(sample_t)*512);
+    OFDM_IFFTW = (sample_t*) malloc(sizeof(sample_t)*512);
+    for (size_t i=0; i<512; i++) {
+        OFDM_FFTW[i].I = cos(2 * PI * i / 512);
+        OFDM_FFTW[i].Q = -sin(2 * PI * i / 512);
+        OFDM_IFFTW[i].I = cos(2 * PI * i / 512) / 4; // scaled, final result is (8/4)^3=8 times larger for 512-pt ifft
+        OFDM_IFFTW[i].Q = sin(2 * PI * i / 512) / 4; // scaled, final result is (8/4)^3=8 times larger for 512-pt ifft
+    }
+}
+
+ofdm_modem::~ofdm_modem() {
+    free(OFDM_BUF);
+    free(OFDM_FFTW);
+    free(OFDM_IFFTW);
+    delete (ofdm_modem_data_t*)data;
+}
+
+static sample_t cmplx_add(sample_t x, sample_t y) {
+    sample_t result;
+    result.I = x.I + y.I;
+    result.Q = x.Q + y.Q;
+    return result;
+}
+
+static sample_t cmplx_sub(sample_t x, sample_t y) {
+    sample_t result;
+    result.I = x.I - y.I;
+    result.Q = x.Q - y.Q;
+    return result;
+}
+
+static sample_t cmplx_mult(sample_t x, sample_t y) {
+    sample_t result;
+    result.I = x.I * y.I - x.Q * y.Q;
+    result.Q = x.Q * y.I + x.I * y.Q;
+    return result;
+}
+
 // void fft(sample_t* const data /* 512-pt inout */) { // natural order in, bit-reversed order out
 //     sample_t butterfly[3][8]; // each stage of radix-8 calc requires 3 rounds of butterflies
 //     int data_index[8];
@@ -291,9 +302,9 @@ sample_t biquad_filter::filter(const sample_t& in) { // direct form ii
 //                 butterfly[1][3] = cmplx_sub(butterfly[0][1], butterfly[0][3]);
 //                 butterfly[1][5] = cmplx_add(butterfly[0][5], butterfly[0][7]);
 //                 butterfly[1][7] = cmplx_sub(butterfly[0][5], butterfly[0][7]);
-//                 butterfly[1][5] = cmplx_mult(butterfly[1][5], (sample_t){cos(M_PI/4),-sin(M_PI/4)});
+//                 butterfly[1][5] = cmplx_mult(butterfly[1][5], (sample_t){cos(PI/4),-sin(PI/4)});
 //                 butterfly[1][3] = cmplx_mult(butterfly[1][3], (sample_t){0,-1});
-//                 butterfly[1][7] = cmplx_mult(butterfly[1][7], (sample_t){cos(3*M_PI/4),-sin(3*M_PI/4)});
+//                 butterfly[1][7] = cmplx_mult(butterfly[1][7], (sample_t){cos(3*PI/4),-sin(3*PI/4)});
 //                 butterfly[2][0] = cmplx_add(butterfly[1][0], butterfly[1][1]);
 //                 butterfly[2][1] = cmplx_add(butterfly[1][4], butterfly[1][5]);
 //                 butterfly[2][2] = cmplx_add(butterfly[1][2], butterfly[1][3]);
@@ -357,9 +368,9 @@ sample_t biquad_filter::filter(const sample_t& in) { // direct form ii
 //                 butterfly[2][3] = cmplx_sub(butterfly[1][1], butterfly[1][3]);
 //                 butterfly[2][5] = cmplx_add(butterfly[1][5], butterfly[1][7]);
 //                 butterfly[2][7] = cmplx_sub(butterfly[1][5], butterfly[1][7]);
-//                 butterfly[2][5] = cmplx_mult(butterfly[2][5], (sample_t){cos(M_PI/4),sin(M_PI/4)});
+//                 butterfly[2][5] = cmplx_mult(butterfly[2][5], (sample_t){cos(PI/4),sin(PI/4)});
 //                 butterfly[2][3] = cmplx_mult(butterfly[2][3], (sample_t){0,1});
-//                 butterfly[2][7] = cmplx_mult(butterfly[2][7], (sample_t){cos(3*M_PI/4),sin(3*M_PI/4)});
+//                 butterfly[2][7] = cmplx_mult(butterfly[2][7], (sample_t){cos(3*PI/4),sin(3*PI/4)});
 //                 data[data_index[0]] = cmplx_add(butterfly[2][0], butterfly[2][1]);
 //                 data[data_index[1]] = cmplx_add(butterfly[2][4], butterfly[2][5]);
 //                 data[data_index[2]] = cmplx_add(butterfly[2][2], butterfly[2][3]);
