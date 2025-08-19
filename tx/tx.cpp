@@ -34,7 +34,7 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
     static bool RLn = false; // R/L channel wearing balancing
     unsigned fifo_size = q.size();
 
-    if (fifo_size<TX_BUF_DEPTH) {
+    if (fifo_size<TX_BUF_DEPTH) { // idle, wait until buffer is filled (packet len must be n*TX_BUF_DEPTH)
         if ( /*prior*/ wearing==true ) {
             RLn = !RLn;
         }
