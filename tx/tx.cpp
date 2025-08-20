@@ -66,6 +66,7 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
     }
 
     sample_t constel, sample;
+    sym_t    sym;
 
     // preamble: chirp for signal existence check, timing and gain control reference
     for (size_t i=0; i<PREAM_BODY; i++) {
@@ -104,48 +105,12 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
     }
 
     // header in bpsk: 3b modulation | 13b byte size
-    unsigned short header = (mod<<13) | len;
-    for (size_t j=0; j<16; j++) {
-        int bit = (header>>j) & 1; // lsb first
-        constel.I = (2*bit-1);
-        constel.Q = 0;
-        for (size_t i=0; i<SYMBOL_BODY; i++) {
-            sample = lpf.filter(constel);
-            q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
-            // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
-        }
-    }
-
-    // frame body
-    if (len) {
-        size_t bps = (int)(1<<mod);
-        size_t loop = ((int)len+(bps-8)/8)*8/bps;
-        for (size_t j=0; j<loop; j++) {
-            sym_t sym;
-            memset(&sym, 0, (bps+7)/8);
-            memcpy(&sym, data+j*bps/8, (len-j*bps/8)<(bps+7)/8 ? (len-j*bps/8) : (bps+7)/8);
-            sym.bpsk >>= (j % ((8+bps-1)/bps))*bps; // bpsk here stands for any non-ofdm symbol
-            sym.bpsk &= (1<<((bps+7)%8+1))-1; // bpsk here stands for any non-ofdm symbol
-            switch (mod) {
-                default /* BPSK */:
-                    constel.I = (2*sym.bpsk-1);
-                    constel.Q = 0;
-                    break;
-                case MOD_QPSK:
-                    constel.I = 0.7071*(2*(sym.qpsk & 1)-1);
-                    constel.Q = 0.7071*(2*(sym.qpsk >> 1)-1);
-                    break;
-                // not implemented yet below
-                case MOD_QAM16:
-                case MOD_QAM64:
-                case MOD_OFDM_BPSK:
-                case MOD_OFDM_QPSK:
-                case MOD_OFDM_QAM16:
-                case MOD_OFDM_QAM64:
-                    constel.I = 0;
-                    constel.Q = 0;
-                    break;
-            }
+    {
+        unsigned short header = (mod<<13) | len;
+        for (size_t j=0; j<16; j++) {
+            int bit = (header>>j) & 1; // lsb first
+            constel.I = (2*bit-1);
+            constel.Q = 0;
             for (size_t i=0; i<SYMBOL_BODY; i++) {
                 sample = lpf.filter(constel);
                 q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
@@ -154,13 +119,41 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
         }
     }
 
-    // pick up remainders in the filter & protective margin
-    constel.I = 0;
-    constel.Q = 0;
-    for (size_t i=0; i<TX_BUF_DEPTH; i++) {
-        sample = lpf.filter(constel);
-        q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
-        // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
+    #define MODULATE()                                      \
+        for (size_t i=0; i<SYMBOL_BODY; i++) {              \
+            sample = lpf.filter(constel);                   \
+            q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q); \
+        }
+
+    // frame body
+    switch (mod) {
+    default: /* MOD_BPSK */
+        for (size_t j=0; j<len; j++) {
+            for (size_t k=0; k<8; k++) {
+                sym.bpsk = (data[j]>>k) & 0b1;
+                constel.I = (2*sym.bpsk-1);
+                constel.Q = 0;
+                MODULATE();
+            }
+        }
+    case MOD_QPSK:
+        for (size_t j=0; j<len; j++) {
+            for (size_t k=0; k<8; k+=2) {
+                sym.qpsk = (data[j]>>k) & 0b11;
+                constel.I = 0.7071*(2*(sym.qpsk & 0b1)-1);
+                constel.Q = 0.7071*(2*(sym.qpsk >> 1 )-1);
+                MODULATE();
+            }
+        }
+    case MOD_QAM16:
+        for (size_t j=0; j<len; j++) {
+            for (size_t k=0; k<8; k+=4) {
+                sym.qam16 = (data[j]>>k) & 0b1111;
+                constel.I = 0.7071*(2.0f*(sym.qpsk & 0b11)/3-1);
+                constel.Q = 0.7071*(2.0f*(sym.qpsk >> 2  )/3-1);
+                MODULATE();
+            }
+        }
     }
 }
 
