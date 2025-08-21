@@ -12,6 +12,10 @@ run: rx.exe
 	rx.exe
 .phony: run
 
+show: rx.exe ../analysis/realtime_constel.py
+	rx | python ../analysis/realtime_constel.py
+.phony: show
+
 rx.exe: rx.o dsp.o sliwin.o ../librtaudio.a
 	$(CXX) $^ -static -lksuser -lmfplat -lmfuuid -lwmcodecdspuuid -lwinmm -lole32 -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 -lpthread -o $@
 

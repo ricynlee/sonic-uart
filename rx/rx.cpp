@@ -1,6 +1,5 @@
 #include "RtAudio.h"
 #include <iostream>
-#include <iomanip>
 #include <cmath>
 #include "dsp.hpp"
 #include "fifo.hpp"
@@ -56,6 +55,7 @@ static local_oscillator lo;
 static fir_filter lpf;
 static fir_filter mf;
 static biquad_filter nbf;
+static char rxdata[1<<13];
 
 // functions
 inline float amp(const sample_t& x) {
@@ -148,23 +148,7 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
     return 0;
 }
 
-void sym_decision(sym_t& sym, sample_t constel, mod_t mod=MOD_BPSK) {
-    switch (mod) {
-        default: /* BPSK */
-            sym.bpsk = (constel.I>0);
-            break;
-        case MOD_QPSK:
-            sym.qpsk = ((constel.Q>0) << 1) | (constel.I>0);
-            return;
-        // other schemes are not implemented yet
-    }
-}
-
-void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
-    if (!data || !len_limit) {
-        return;
-    }
-
+size_t rx_demodulate(void) {
     sample_t bb; // base-band sample
 
     float pream_amp_ref; // amplitude reference
@@ -175,7 +159,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         for (unsigned short i=0; ; i++) {
             bb = lpf.filter(lo.mix(q));
 
-            cout << bb.I << ' ' << bb.Q << endl;
+            // cout << bb.I << ' ' << bb.Q << endl;
 
             if (i % 8 == 0) { // 1/8 decimation
                 bb = mf.filter(bb); // matching filtering
@@ -198,7 +182,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         for (unsigned short i=0; i<BUBBLE_BODY-8+1024; i++) { // skip the bubble and coarsely fill nbf (approx. 1024-point delay), match filter has 8-point delay
             bb = lpf.filter(lo.mix(q));
 
-            cout << bb.I << ' ' << bb.Q << endl;
+            // cout << bb.I << ' ' << bb.Q << endl;
 
             if (i % 4 == 0) { // decimation
                 nbf.filter(bb); // fill in the nbf biquad iir filter
@@ -225,7 +209,7 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         for (size_t i=0; i<CARRIER_BODY-3072; i++) {
             bb = lpf.filter(lo.mix(q));
 
-            cout << bb.I << ' ' << bb.Q << endl;
+            // cout << bb.I << ' ' << bb.Q << endl;
 
             if (i % 4 == 0) { // 1/4 decimation
                 bb = nbf.filter(bb);
@@ -284,9 +268,8 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
 
         float carrier_amp_ref = amp(ref);
         if (carrier_amp_ref>pream_amp_ref*4 || carrier_amp_ref<pream_amp_ref/4) { // carrier_amp_ref too large/small, something is wrong
-            cerr << "Inconsistent signal amplitude. Data reception aborted." << endl;
-            len_limit = 0;
-            return;
+            cerr << "Fluctuating signal amplitude. Data reception aborted." << endl;
+            return 0;
         }
 
         ref.I /= (2048/SYMBOL_BODY);
@@ -301,28 +284,67 @@ void rx_demodulate(char* const data, unsigned& len_limit /* i/o */) {
         lpf.filter(lo.mix(q));
     }
 
-    unsigned short header = 0;
-    for (size_t j=0; j<16; j++) { // header, bpsk
-        fraction += SYMBOL_BODY*timing_scale_coef;
-        size_t n = fraction;
-        fraction -= n;
+    // header
+    mod_t mod;
+    unsigned short len;
+    {
+        unsigned short header = 0;
+        for (size_t j=0; j<16; j++) { // header, bpsk
+            fraction += SYMBOL_BODY*timing_scale_coef;
+            size_t n = fraction;
+            fraction -= n;
 
-        sample_t constel = {0.0f, 0.0f};
-        for (size_t i=0; i<n; i++) {
-            bb = lpf.filter(lo.mix(q));
-            constel.I += bb.I;
-            constel.Q += bb.Q;
+            sample_t constel = {0.0f, 0.0f};
+            for (size_t i=0; i<n; i++) {
+                bb = lpf.filter(lo.mix(q));
+                constel.I += bb.I;
+                constel.Q += bb.Q;
+            }
+
+            sym_t sym;
+            sr.correct(constel);
+            sym.bpsk = (constel.I>0);
+            header |= (sym.bpsk << j);
         }
 
-        sym_t sym;
-        sr.correct(constel);
-        sym_decision(sym, constel);
-        header |= (sym.bpsk << j);
+        len = header & 0x1fff; // lower 13 bits
+        mod = (mod_t)(header >> 13); // higher 3 bits
     }
 
-    cerr << "Header 0x" << hex << header << endl;
+    cerr << "Len = " << len << ", ";
+    const char* mod_scheme[] = {
+        "BPSK", "QPSK", "16QAM", "UNKNOWN",
+        "OFDM BPSK", "OFDM QPSK", "OFDM 16QAM", "UNKNOWN"
+    };
+    cerr << "Modulation = " << mod_scheme[mod] << endl;
 
-    len_limit = 0;
+    // data reception
+    if (mod==MOD_BPSK) {
+        for (size_t k=0; k<len; k++) {
+            rxdata[k] = 0;
+            for (size_t j=0; j<8; j++) {
+                fraction += SYMBOL_BODY*timing_scale_coef;
+                size_t n = fraction;
+                fraction -= n;
+
+                sample_t constel = {0.0f, 0.0f};
+                for (size_t i=0; i<n; i++) {
+                    bb = lpf.filter(lo.mix(q));
+                    constel.I += bb.I;
+                    constel.Q += bb.Q;
+                }
+
+                sym_t sym;
+                sr.correct(constel);
+
+                cout << constel.I << ' ' << constel.Q << endl;
+
+                sym.bpsk = (constel.I>0);
+                rxdata[k] |= (sym.bpsk << j);
+            }
+        }
+    }
+    return len;
 }
 
 void init_filters() {
@@ -352,21 +374,21 @@ void ui(void) {
         lpf.filter(lo.mix(q));
     }
 
-    cerr << "Listening for data..." << endl;
-    char s[256];
-    unsigned len;
-
     while (true) {
-        len = sizeof(s)-1;
-        rx_demodulate(s, len);
-        s[len] = '\0';
+        cerr << "Listening for data..." << endl;
+        unsigned len = rx_demodulate();
+
         if (len==0) {
-            cerr << "Goodbye" << endl;
             break;
         } else {
-            // cout << s << endl;
+            for (size_t j=0; j<len; j++) {
+                cerr << rxdata[j];
+            }
+            cerr << endl;
         }
     }
+
+    cerr << "Goodbye" << endl;
 }
 
 int main()
