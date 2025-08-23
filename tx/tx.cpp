@@ -119,12 +119,6 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
         }
     }
 
-    #define MODULATE()                                      \
-        for (size_t i=0; i<SYMBOL_BODY; i++) {              \
-            sample = lpf.filter(constel);                   \
-            q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q); \
-        }
-
     // frame body
     switch (mod) {
     default: /* MOD_BPSK */
@@ -133,27 +127,20 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
                 sym.bpsk = (data[j]>>k) & 0b1;
                 constel.I = (2*sym.bpsk-1);
                 constel.Q = 0;
-                MODULATE();
+                for (size_t i=0; i<SYMBOL_BODY; i++) {
+                    sample = lpf.filter(constel);
+                    q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+                }
             }
         }
-    case MOD_QPSK:
-        for (size_t j=0; j<len; j++) {
-            for (size_t k=0; k<8; k+=2) {
-                sym.qpsk = (data[j]>>k) & 0b11;
-                constel.I = 0.7071*(2*(sym.qpsk & 0b1)-1);
-                constel.Q = 0.7071*(2*(sym.qpsk >> 1 )-1);
-                MODULATE();
-            }
-        }
-    case MOD_QAM16:
-        for (size_t j=0; j<len; j++) {
-            for (size_t k=0; k<8; k+=4) {
-                sym.qam16 = (data[j]>>k) & 0b1111;
-                constel.I = 0.7071*(2.0f*(sym.qpsk & 0b11)/3-1);
-                constel.Q = 0.7071*(2.0f*(sym.qpsk >> 2  )/3-1);
-                MODULATE();
-            }
-        }
+    }
+
+    // pick up remainders in the filter & protective margin
+    constel.I = 0;
+    constel.Q = 0;
+    for (size_t i=0; i<TX_BUF_DEPTH; i++) {
+        sample = lpf.filter(constel);
+        q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
     }
 }
 
