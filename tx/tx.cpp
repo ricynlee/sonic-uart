@@ -22,6 +22,7 @@ static const float LPF[LPF_LEN] = LPF_COEF;
 static fifo<float> q; // inter-thread data queue
 
 static fir_filter lpf;
+static char txdata[1<<13];
 
 int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, double /* timestamp */, RtAudioStreamStatus status, void* /* shared_data */) {
     if (status) {
@@ -60,11 +61,7 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
     return 0;
 }
 
-void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
-    if (len && (!data)) { // an exit sequence to rx side if len==0
-        return;
-    }
-
+void tx_modulate(unsigned len, mod_t mod=MOD_BPSK) {
     sample_t constel, sample;
     sym_t    sym;
 
@@ -124,7 +121,7 @@ void tx_modulate(const char* const data, unsigned len, mod_t mod=MOD_BPSK) {
     default: /* MOD_BPSK */
         for (size_t j=0; j<len; j++) {
             for (size_t k=0; k<8; k++) {
-                sym.bpsk = (data[j]>>k) & 0b1;
+                sym.bpsk = (txdata[j]>>k) & 0b1;
                 constel.I = (2*sym.bpsk-1);
                 constel.Q = 0;
                 for (size_t i=0; i<SYMBOL_BODY; i++) {
@@ -154,17 +151,21 @@ void ui(void) {
         SIN[i] = sin(2*PI*CARRIER_FRQ*i/SAMPLE_RATE)/2;
     }
 
-    string s;
     while (true) {
         cerr << "> ";
-        if (getline(cin, s).eof()) {
-            this_thread::sleep_for(chrono::milliseconds(200)); // avoid jamming of typing
-            tx_modulate(NULL, 0);
+        cin.getline(txdata, sizeof(txdata));
+        if (cin.eof()) {
+            this_thread::sleep_for(chrono::milliseconds(200)); // avoid jamming of keyboard typing
+            tx_modulate(0);
             break;
-        } else {
-            this_thread::sleep_for(chrono::milliseconds(200)); // avoid jamming of typing
-            tx_modulate(s.c_str(), s.length());
         }
+
+        if (cin.fail()) { // too many chars in buffer
+            cin.clear(); // leave it to next read
+        }
+
+        this_thread::sleep_for(chrono::milliseconds(200)); // avoid jamming of keyboard typing
+        tx_modulate(cin.gcount());
     }
 
     while (q.size()) {
