@@ -332,10 +332,38 @@ int main() { // biquad case
 }
  */
 
-int main() {
-    for (int i=0; i<256; i++) {
-        cout << fast_exp((float)-i/96) << endl;
-    }
+// int main() {
+//     for (int i=0; i<256; i++) {
+//         cout << fast_exp((float)-i/96) << endl;
+//     }
+// 
+//     return 0;
+// }
 
+int main() {
+    ofdm_modem modem;
+    modem.fdd[0] = (sample_t){0,-1};
+    modem.fdd[1] = (sample_t){1,0};
+    modem.fdd[2] = (sample_t){0.7071, 0.7071};
+    modem.fdd[3] = (sample_t){-0.7071, 0.7071};
+    modem.fdd[4] = (sample_t){-1,0};
+    modem.fdd[5] = (sample_t){0,1};
+    modem.fdd[6] = (sample_t){0.7071, -0.7071};
+    modem.fdd[7] = (sample_t){-0.7071, -0.7071};
+
+    modem.fdd[8+0] = (sample_t){0,-1};
+    modem.fdd[8+1] = (sample_t){-1,0};
+    modem.fdd[8+2] = (sample_t){0.7071, 0.7071};
+    modem.fdd[8+3] = (sample_t){0.7071, -0.7071};
+    modem.fdd[8+4] = (sample_t){1,0};
+    modem.fdd[8+5] = (sample_t){0,1};
+    modem.fdd[8+6] = (sample_t){-0.7071, 0.7071};
+    modem.fdd[8+7] = (sample_t){-0.7071, -0.7071};
+
+    modem.modulate();
+    modem.demodulate();
+    for (size_t i=0; i<16; i++) {
+        cout << modem.fdd[i].I/32 << ' ' << modem.fdd[i].Q/32 << endl;
+    }
     return 0;
 }

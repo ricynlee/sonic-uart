@@ -157,7 +157,7 @@ sample_t fir_filter::filter(const sample_t& in) {
 float chirp(size_t index) {
     const double u = 1500. * SAMPLE_RATE / PREAM_BODY / 2;
     double t = (double)index/SAMPLE_RATE;
-    return (float)cos(2*PI*(-750*t+u*t*t));
+    return cosf(2*PI*(-750*t+u*t*t));
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -218,32 +218,27 @@ sample_t biquad_filter::filter(const sample_t& in) { // direct form ii
 // OFDM modem (FFT)
 ///////////////////////////////////////////////////////////////////////////////////////////////
 typedef struct {
-    sample_t* buffer;
-    sample_t* w512_fft;
-    sample_t* w512_ifft;
+    sample_t* twiddle;  // weight, or twiddle factor
 } ofdm_modem_data_t;
 
-#define OFDM_BUF    (((ofdm_modem_data_t*)data)->buffer)
-#define OFDM_FFTW   (((ofdm_modem_data_t*)data)->w512_fft)
-#define OFDM_IFFTW  (((ofdm_modem_data_t*)data)->w512_ifft)
+#define OFDM_FDDB   (this->fdd)
+#define OFDM_TDDB   (this->tdd)
+#define OFDM_TWID   (((ofdm_modem_data_t*)data)->twiddle)
+#define OFDM_BUFF   OFDM_TDDB
 
-ofdm_modem::ofdm_modem() {
+ofdm_modem::ofdm_modem(): fdd((sample_t*)malloc(sizeof(sample_t)*16)), tdd((sample_t*)malloc(sizeof(sample_t)*512)) {
     data = (void*)new ofdm_modem_data_t;
-    OFDM_BUF = (sample_t*) malloc(sizeof(sample_t)*512);
-    OFDM_FFTW = (sample_t*) malloc(sizeof(sample_t)*512);
-    OFDM_IFFTW = (sample_t*) malloc(sizeof(sample_t)*512);
+    OFDM_TWID = (sample_t*)malloc(sizeof(sample_t)*512);
     for (size_t i=0; i<512; i++) {
-        OFDM_FFTW[i].I = cos(2 * PI * i / 512);
-        OFDM_FFTW[i].Q = -sin(2 * PI * i / 512);
-        OFDM_IFFTW[i].I = cos(2 * PI * i / 512) / 4; // scaled, final result is (8/4)^3=8 times larger for 512-pt ifft
-        OFDM_IFFTW[i].Q = sin(2 * PI * i / 512) / 4; // scaled, final result is (8/4)^3=8 times larger for 512-pt ifft
+        OFDM_TWID[i].I = cosf(2 * PI * i / 512);
+        OFDM_TWID[i].Q = -sinf(2 * PI * i / 512);
     }
 }
 
 ofdm_modem::~ofdm_modem() {
-    free(OFDM_BUF);
-    free(OFDM_FFTW);
-    free(OFDM_IFFTW);
+    free(OFDM_FDDB);
+    free(OFDM_TDDB);
+    free(OFDM_TWID);
     delete (ofdm_modem_data_t*)data;
 }
 
@@ -268,170 +263,167 @@ static sample_t cmplx_mult(sample_t x, sample_t y) {
     return result;
 }
 
-// void fft(sample_t* const data /* 512-pt inout */) { // natural order in, bit-reversed order out
-//     sample_t butterfly[3][8]; // each stage of radix-8 calc requires 3 rounds of butterflies
-//     int data_index[8];
-//     int weight_index;
-// 
-//     for(int i = 0; i < 3; i++){
-//         int group_num, group_size;
-//         group_num = 1 << (3*i);
-//         group_size = 1 << (6-3*i);
-//         for(int j = 0; j < group_num; j++){
-//             for(int k = 0; k < group_size; k++){
-//                 for(int m = 0; m < 8; m++){
-//                     data_index[m] = j * group_size * 8 + k + m * group_size;
-//                 }
-//                 weight_index = k * group_num;
-// 
-//                 butterfly[0][0] = cmplx_add(data[data_index[0]], data[data_index[4]]);
-//                 butterfly[0][4] = cmplx_sub(data[data_index[0]], data[data_index[4]]);
-//                 butterfly[0][2] = cmplx_add(data[data_index[2]], data[data_index[6]]);
-//                 butterfly[0][6] = cmplx_sub(data[data_index[2]], data[data_index[6]]);
-//                 butterfly[0][1] = cmplx_add(data[data_index[1]], data[data_index[5]]);
-//                 butterfly[0][5] = cmplx_sub(data[data_index[1]], data[data_index[5]]);
-//                 butterfly[0][3] = cmplx_add(data[data_index[3]], data[data_index[7]]);
-//                 butterfly[0][7] = cmplx_sub(data[data_index[3]], data[data_index[7]]);
-//                 butterfly[0][6] = cmplx_mult(butterfly[0][6], (sample_t){0,-1});
-//                 butterfly[0][7] = cmplx_mult(butterfly[0][7], (sample_t){0,-1});
-//                 butterfly[1][0] = cmplx_add(butterfly[0][0], butterfly[0][2]);
-//                 butterfly[1][2] = cmplx_sub(butterfly[0][0], butterfly[0][2]);
-//                 butterfly[1][4] = cmplx_add(butterfly[0][4], butterfly[0][6]);
-//                 butterfly[1][6] = cmplx_sub(butterfly[0][4], butterfly[0][6]);
-//                 butterfly[1][1] = cmplx_add(butterfly[0][1], butterfly[0][3]);
-//                 butterfly[1][3] = cmplx_sub(butterfly[0][1], butterfly[0][3]);
-//                 butterfly[1][5] = cmplx_add(butterfly[0][5], butterfly[0][7]);
-//                 butterfly[1][7] = cmplx_sub(butterfly[0][5], butterfly[0][7]);
-//                 butterfly[1][5] = cmplx_mult(butterfly[1][5], (sample_t){cos(PI/4),-sin(PI/4)});
-//                 butterfly[1][3] = cmplx_mult(butterfly[1][3], (sample_t){0,-1});
-//                 butterfly[1][7] = cmplx_mult(butterfly[1][7], (sample_t){cos(3*PI/4),-sin(3*PI/4)});
-//                 butterfly[2][0] = cmplx_add(butterfly[1][0], butterfly[1][1]);
-//                 butterfly[2][1] = cmplx_add(butterfly[1][4], butterfly[1][5]);
-//                 butterfly[2][2] = cmplx_add(butterfly[1][2], butterfly[1][3]);
-//                 butterfly[2][3] = cmplx_add(butterfly[1][6], butterfly[1][7]);
-//                 butterfly[2][4] = cmplx_sub(butterfly[1][0], butterfly[1][1]);
-//                 butterfly[2][5] = cmplx_sub(butterfly[1][4], butterfly[1][5]);
-//                 butterfly[2][6] = cmplx_sub(butterfly[1][2], butterfly[1][3]);
-//                 butterfly[2][7] = cmplx_sub(butterfly[1][6], butterfly[1][7]);
-//                 data[data_index[0]] = cmplx_mult(butterfly[2][0], weight_fft(0,weight_index));
-//                 data[data_index[1]] = cmplx_mult(butterfly[2][1], weight_fft(1,weight_index));
-//                 data[data_index[2]] = cmplx_mult(butterfly[2][2], weight_fft(2,weight_index));
-//                 data[data_index[3]] = cmplx_mult(butterfly[2][3], weight_fft(3,weight_index));
-//                 data[data_index[4]] = cmplx_mult(butterfly[2][4], weight_fft(4,weight_index));
-//                 data[data_index[5]] = cmplx_mult(butterfly[2][5], weight_fft(5,weight_index));
-//                 data[data_index[6]] = cmplx_mult(butterfly[2][6], weight_fft(6,weight_index));
-//                 data[data_index[7]] = cmplx_mult(butterfly[2][7], weight_fft(7,weight_index));
-//             }
-//         }
-//     }
-// }
-// 
-// void ifft_x8(sample_t* const data /* 512-pt inout */) { // bit-reversed order in, natural order out, output is x8 scaled
-//     sample_t butterfly[3][8];
-//     int data_index[8];
-//     int weight_index;
-// 
-//     for(int i = 0; i < 3; i++){
-//         int group_num, group_size;
-//         group_num = 1 << (6-3*i);
-//         group_size = 1 << (3*i);
-//         for(int j = 0; j < group_num; j++){
-//             for(int k = 0; k < group_size; k++){
-//                 for(int m = 0; m < 8; m++){
-//                     data_index[m] = j * group_size * 8 + k + m * group_size;
-//                 }
-//                 weight_index = k * group_num;
-// 
-//                 butterfly[0][0] = cmplx_mult(data[data_index[0]], weight_x2_ifft(0,weight_index));
-//                 butterfly[0][1] = cmplx_mult(data[data_index[1]], weight_x2_ifft(1,weight_index));
-//                 butterfly[0][2] = cmplx_mult(data[data_index[2]], weight_x2_ifft(2,weight_index));
-//                 butterfly[0][3] = cmplx_mult(data[data_index[3]], weight_x2_ifft(3,weight_index));
-//                 butterfly[0][4] = cmplx_mult(data[data_index[4]], weight_x2_ifft(4,weight_index));
-//                 butterfly[0][5] = cmplx_mult(data[data_index[5]], weight_x2_ifft(5,weight_index));
-//                 butterfly[0][6] = cmplx_mult(data[data_index[6]], weight_x2_ifft(6,weight_index));
-//                 butterfly[0][7] = cmplx_mult(data[data_index[7]], weight_x2_ifft(7,weight_index));
-//                 butterfly[1][0] = cmplx_add(butterfly[0][0], butterfly[0][4]);
-//                 butterfly[1][4] = cmplx_sub(butterfly[0][0], butterfly[0][4]);
-//                 butterfly[1][2] = cmplx_add(butterfly[0][2], butterfly[0][6]);
-//                 butterfly[1][6] = cmplx_sub(butterfly[0][2], butterfly[0][6]);
-//                 butterfly[1][1] = cmplx_add(butterfly[0][1], butterfly[0][5]);
-//                 butterfly[1][5] = cmplx_sub(butterfly[0][1], butterfly[0][5]);
-//                 butterfly[1][3] = cmplx_add(butterfly[0][3], butterfly[0][7]);
-//                 butterfly[1][7] = cmplx_sub(butterfly[0][3], butterfly[0][7]);
-//                 butterfly[1][6] = cmplx_mult(butterfly[1][6], (sample_t){0,1});
-//                 butterfly[1][7] = cmplx_mult(butterfly[1][7], (sample_t){0,1});
-//                 butterfly[2][0] = cmplx_add(butterfly[1][0], butterfly[1][2]);
-//                 butterfly[2][2] = cmplx_sub(butterfly[1][0], butterfly[1][2]);
-//                 butterfly[2][4] = cmplx_add(butterfly[1][4], butterfly[1][6]);
-//                 butterfly[2][6] = cmplx_sub(butterfly[1][4], butterfly[1][6]);
-//                 butterfly[2][1] = cmplx_add(butterfly[1][1], butterfly[1][3]);
-//                 butterfly[2][3] = cmplx_sub(butterfly[1][1], butterfly[1][3]);
-//                 butterfly[2][5] = cmplx_add(butterfly[1][5], butterfly[1][7]);
-//                 butterfly[2][7] = cmplx_sub(butterfly[1][5], butterfly[1][7]);
-//                 butterfly[2][5] = cmplx_mult(butterfly[2][5], (sample_t){cos(PI/4),sin(PI/4)});
-//                 butterfly[2][3] = cmplx_mult(butterfly[2][3], (sample_t){0,1});
-//                 butterfly[2][7] = cmplx_mult(butterfly[2][7], (sample_t){cos(3*PI/4),sin(3*PI/4)});
-//                 data[data_index[0]] = cmplx_add(butterfly[2][0], butterfly[2][1]);
-//                 data[data_index[1]] = cmplx_add(butterfly[2][4], butterfly[2][5]);
-//                 data[data_index[2]] = cmplx_add(butterfly[2][2], butterfly[2][3]);
-//                 data[data_index[3]] = cmplx_add(butterfly[2][6], butterfly[2][7]);
-//                 data[data_index[4]] = cmplx_sub(butterfly[2][0], butterfly[2][1]);
-//                 data[data_index[5]] = cmplx_sub(butterfly[2][4], butterfly[2][5]);
-//                 data[data_index[6]] = cmplx_sub(butterfly[2][2], butterfly[2][3]);
-//                 data[data_index[7]] = cmplx_sub(butterfly[2][6], butterfly[2][7]);
-//             }
-//         }
-//     }
-// }
-// 
-// static uint16_t reverse_bit(uint16_t n) { // radix-8, 512-pt only
-//     n = ((n & 0b111000000) >> 6) | ((n & 0b000000111) << 6) | (n & 0b000111000);
-//     return n;
-// }
-// 
-// void reorder(sample_t* const data /* 512-pt inout */) { // in-place
-//     sample_t tmp;
-//     for (uint16_t i=0; i<512; i++) {
-//         uint16_t j =  reverse_bit(i);
-//         if (j>i) {
-//             tmp = data[i];
-//             data[i] = data[j];
-//             data[j] = tmp;
-//         }
-//     }
-// }
-// 
-// void ofdm_modulate(const sample_t* const constel /* 16-pt in */, sample_t* const data /* 512-pt out */) {
-//     uint16_t j;
-//     memset((void*)data, 0, sizeof(sample_t)*512);
-// 
-//     for(uint16_t i=0; i<8; i++) {
-//         j = reverse_bit(i+1);
-//         data[j].I = constel[i].I*4;
-//         data[j].Q = constel[i].Q*4;
-//     }
-// 
-//     for(uint16_t i=8; i<16; i++) {
-//         j = reverse_bit(i+504-8);
-//         data[j].I = constel[i].I*4;
-//         data[j].Q = constel[i].Q*4;
-//     }
-// 
-//     ifft_x8(data); // 16-pt data, constel x4 and ifft x8, so max abs val of time-domain signal is 1
-// }
-// 
-// void ofdm_demodulate(sample_t* const data /* 512-pt in */, sample_t* const constel /* 16-pt out */) {
-//     uint16_t j;
-//     fft(data);
-// 
-//     for(uint16_t i=0; i<8; i++) {
-//         j = reverse_bit(i+1);
-//         constel[i] = data[j];
-//     }
-// 
-//     for(uint16_t i=8; i<16; i++) {
-//         j = reverse_bit(i+504-8);
-//         constel[i] = data[j];
-//     }
-// }
-// 
+static uint16_t reverse_bit(uint16_t n) { // radix-8, 512-pt only
+    n = ((n & 0b111000000) >> 6) | ((n & 0b000000111) << 6) | (n & 0b000111000);
+    return n;
+}
+
+#define fft() do { /* natural order in, bit-reversed order out */ \
+    auto OFDM_FFTW = [&](size_t i) -> const sample_t& { \
+        return OFDM_TWID[i]; \
+    }; \
+\
+    sample_t butterfly[3][8]; /* each stage of radix-8 calc requires 3 rounds of butterflies */ \
+    int data_index[8]; \
+    int weight_index; \
+\
+    for(int i = 0; i < 3; i++){ \
+        int group_num, group_size; \
+        group_num = 1 << (3*i); \
+        group_size = 1 << (6-3*i); \
+        for(int j = 0; j < group_num; j++){ \
+            for(int k = 0; k < group_size; k++){ \
+                for(int m = 0; m < 8; m++){ \
+                    data_index[m] = j * group_size * 8 + k + m * group_size; \
+                } \
+                weight_index = k * group_num; \
+\
+                butterfly[0][0] = cmplx_add(OFDM_BUFF[data_index[0]], OFDM_BUFF[data_index[4]]); \
+                butterfly[0][4] = cmplx_sub(OFDM_BUFF[data_index[0]], OFDM_BUFF[data_index[4]]); \
+                butterfly[0][2] = cmplx_add(OFDM_BUFF[data_index[2]], OFDM_BUFF[data_index[6]]); \
+                butterfly[0][6] = cmplx_sub(OFDM_BUFF[data_index[2]], OFDM_BUFF[data_index[6]]); \
+                butterfly[0][1] = cmplx_add(OFDM_BUFF[data_index[1]], OFDM_BUFF[data_index[5]]); \
+                butterfly[0][5] = cmplx_sub(OFDM_BUFF[data_index[1]], OFDM_BUFF[data_index[5]]); \
+                butterfly[0][3] = cmplx_add(OFDM_BUFF[data_index[3]], OFDM_BUFF[data_index[7]]); \
+                butterfly[0][7] = cmplx_sub(OFDM_BUFF[data_index[3]], OFDM_BUFF[data_index[7]]); \
+                butterfly[0][6] = cmplx_mult(butterfly[0][6], (sample_t){0,-1}); \
+                butterfly[0][7] = cmplx_mult(butterfly[0][7], (sample_t){0,-1}); \
+                butterfly[1][0] = cmplx_add(butterfly[0][0], butterfly[0][2]); \
+                butterfly[1][2] = cmplx_sub(butterfly[0][0], butterfly[0][2]); \
+                butterfly[1][4] = cmplx_add(butterfly[0][4], butterfly[0][6]); \
+                butterfly[1][6] = cmplx_sub(butterfly[0][4], butterfly[0][6]); \
+                butterfly[1][1] = cmplx_add(butterfly[0][1], butterfly[0][3]); \
+                butterfly[1][3] = cmplx_sub(butterfly[0][1], butterfly[0][3]); \
+                butterfly[1][5] = cmplx_add(butterfly[0][5], butterfly[0][7]); \
+                butterfly[1][7] = cmplx_sub(butterfly[0][5], butterfly[0][7]); \
+                butterfly[1][5] = cmplx_mult(butterfly[1][5], (sample_t){cosf(PI/4),-sinf(PI/4)}); \
+                butterfly[1][3] = cmplx_mult(butterfly[1][3], (sample_t){0,-1}); \
+                butterfly[1][7] = cmplx_mult(butterfly[1][7], (sample_t){cosf(3*PI/4),-sinf(3*PI/4)}); \
+                butterfly[2][0] = cmplx_add(butterfly[1][0], butterfly[1][1]); \
+                butterfly[2][1] = cmplx_add(butterfly[1][4], butterfly[1][5]); \
+                butterfly[2][2] = cmplx_add(butterfly[1][2], butterfly[1][3]); \
+                butterfly[2][3] = cmplx_add(butterfly[1][6], butterfly[1][7]); \
+                butterfly[2][4] = cmplx_sub(butterfly[1][0], butterfly[1][1]); \
+                butterfly[2][5] = cmplx_sub(butterfly[1][4], butterfly[1][5]); \
+                butterfly[2][6] = cmplx_sub(butterfly[1][2], butterfly[1][3]); \
+                butterfly[2][7] = cmplx_sub(butterfly[1][6], butterfly[1][7]); \
+                OFDM_BUFF[data_index[0]] = cmplx_mult(butterfly[2][0], OFDM_FFTW(0*weight_index)); \
+                OFDM_BUFF[data_index[1]] = cmplx_mult(butterfly[2][1], OFDM_FFTW(1*weight_index)); \
+                OFDM_BUFF[data_index[2]] = cmplx_mult(butterfly[2][2], OFDM_FFTW(2*weight_index)); \
+                OFDM_BUFF[data_index[3]] = cmplx_mult(butterfly[2][3], OFDM_FFTW(3*weight_index)); \
+                OFDM_BUFF[data_index[4]] = cmplx_mult(butterfly[2][4], OFDM_FFTW(4*weight_index)); \
+                OFDM_BUFF[data_index[5]] = cmplx_mult(butterfly[2][5], OFDM_FFTW(5*weight_index)); \
+                OFDM_BUFF[data_index[6]] = cmplx_mult(butterfly[2][6], OFDM_FFTW(6*weight_index)); \
+                OFDM_BUFF[data_index[7]] = cmplx_mult(butterfly[2][7], OFDM_FFTW(7*weight_index)); \
+            } \
+        } \
+    } \
+} while (0)
+
+#define ifft_x8() do { /* bit-reversed order in, natural order out, output is x8 scaled */ \
+    auto OFDM_IFFTW = [&](size_t i) -> const sample_t& { \
+        static sample_t w; \
+        w.I = OFDM_TWID[i].I / 4; /* scaled, final result is (8/4)^3=8 times larger for 512-pt ifft */ \
+        w.Q = -OFDM_TWID[i].Q / 4;  /* scaled, final result is (8/4)^3=8 times larger for 512-pt ifft */ \
+        return w; \
+    }; \
+\
+    sample_t butterfly[3][8]; \
+    int data_index[8]; \
+    int weight_index; \
+\
+    for(int i = 0; i < 3; i++){ \
+        int group_num, group_size; \
+        group_num = 1 << (6-3*i); \
+        group_size = 1 << (3*i); \
+        for(int j = 0; j < group_num; j++){ \
+            for(int k = 0; k < group_size; k++){ \
+                for(int m = 0; m < 8; m++){ \
+                    data_index[m] = j * group_size * 8 + k + m * group_size; \
+                } \
+                weight_index = k * group_num; \
+\
+                butterfly[0][0] = cmplx_mult(OFDM_BUFF[data_index[0]], OFDM_IFFTW(0*weight_index)); \
+                butterfly[0][1] = cmplx_mult(OFDM_BUFF[data_index[1]], OFDM_IFFTW(1*weight_index)); \
+                butterfly[0][2] = cmplx_mult(OFDM_BUFF[data_index[2]], OFDM_IFFTW(2*weight_index)); \
+                butterfly[0][3] = cmplx_mult(OFDM_BUFF[data_index[3]], OFDM_IFFTW(3*weight_index)); \
+                butterfly[0][4] = cmplx_mult(OFDM_BUFF[data_index[4]], OFDM_IFFTW(4*weight_index)); \
+                butterfly[0][5] = cmplx_mult(OFDM_BUFF[data_index[5]], OFDM_IFFTW(5*weight_index)); \
+                butterfly[0][6] = cmplx_mult(OFDM_BUFF[data_index[6]], OFDM_IFFTW(6*weight_index)); \
+                butterfly[0][7] = cmplx_mult(OFDM_BUFF[data_index[7]], OFDM_IFFTW(7*weight_index)); \
+                butterfly[1][0] = cmplx_add(butterfly[0][0], butterfly[0][4]); \
+                butterfly[1][4] = cmplx_sub(butterfly[0][0], butterfly[0][4]); \
+                butterfly[1][2] = cmplx_add(butterfly[0][2], butterfly[0][6]); \
+                butterfly[1][6] = cmplx_sub(butterfly[0][2], butterfly[0][6]); \
+                butterfly[1][1] = cmplx_add(butterfly[0][1], butterfly[0][5]); \
+                butterfly[1][5] = cmplx_sub(butterfly[0][1], butterfly[0][5]); \
+                butterfly[1][3] = cmplx_add(butterfly[0][3], butterfly[0][7]); \
+                butterfly[1][7] = cmplx_sub(butterfly[0][3], butterfly[0][7]); \
+                butterfly[1][6] = cmplx_mult(butterfly[1][6], (sample_t){0,1}); \
+                butterfly[1][7] = cmplx_mult(butterfly[1][7], (sample_t){0,1}); \
+                butterfly[2][0] = cmplx_add(butterfly[1][0], butterfly[1][2]); \
+                butterfly[2][2] = cmplx_sub(butterfly[1][0], butterfly[1][2]); \
+                butterfly[2][4] = cmplx_add(butterfly[1][4], butterfly[1][6]); \
+                butterfly[2][6] = cmplx_sub(butterfly[1][4], butterfly[1][6]); \
+                butterfly[2][1] = cmplx_add(butterfly[1][1], butterfly[1][3]); \
+                butterfly[2][3] = cmplx_sub(butterfly[1][1], butterfly[1][3]); \
+                butterfly[2][5] = cmplx_add(butterfly[1][5], butterfly[1][7]); \
+                butterfly[2][7] = cmplx_sub(butterfly[1][5], butterfly[1][7]); \
+                butterfly[2][5] = cmplx_mult(butterfly[2][5], (sample_t){cosf(PI/4),sinf(PI/4)}); \
+                butterfly[2][3] = cmplx_mult(butterfly[2][3], (sample_t){0,1}); \
+                butterfly[2][7] = cmplx_mult(butterfly[2][7], (sample_t){cosf(3*PI/4),sinf(3*PI/4)}); \
+                OFDM_BUFF[data_index[0]] = cmplx_add(butterfly[2][0], butterfly[2][1]); \
+                OFDM_BUFF[data_index[1]] = cmplx_add(butterfly[2][4], butterfly[2][5]); \
+                OFDM_BUFF[data_index[2]] = cmplx_add(butterfly[2][2], butterfly[2][3]); \
+                OFDM_BUFF[data_index[3]] = cmplx_add(butterfly[2][6], butterfly[2][7]); \
+                OFDM_BUFF[data_index[4]] = cmplx_sub(butterfly[2][0], butterfly[2][1]); \
+                OFDM_BUFF[data_index[5]] = cmplx_sub(butterfly[2][4], butterfly[2][5]); \
+                OFDM_BUFF[data_index[6]] = cmplx_sub(butterfly[2][2], butterfly[2][3]); \
+                OFDM_BUFF[data_index[7]] = cmplx_sub(butterfly[2][6], butterfly[2][7]); \
+            } \
+        } \
+    } \
+} while (0)
+
+void ofdm_modem::modulate(void) {
+    uint16_t j;
+    memset((void*)OFDM_BUFF, 0, sizeof(sample_t)*512);
+
+    for(uint16_t i=0; i<8; i++) {
+        j = reverse_bit(i+1); // reordering might be unnecessary, but scaling (x4) is needed
+        OFDM_BUFF[j].I = OFDM_FDDB[i].I*4;
+        OFDM_BUFF[j].Q = OFDM_FDDB[i].Q*4;
+    }
+
+    for(uint16_t i=8; i<16; i++) {
+        j = reverse_bit(i+504-8);
+        OFDM_BUFF[j].I = OFDM_FDDB[i].I*4;
+        OFDM_BUFF[j].Q = OFDM_FDDB[i].Q*4;
+    }
+
+    ifft_x8(); // 16-pt data, constel x4 and ifft x8, so max abs val of 512-pt time-domain signal is 1
+}
+
+void ofdm_modem::demodulate(void) {
+    fft();
+
+    for(uint16_t i=0; i<8; i++) {
+        uint16_t j = reverse_bit(i+1);
+        OFDM_FDDB[i] = OFDM_BUFF[j];
+    }
+
+    for(uint16_t i=8; i<16; i++) {
+        uint16_t j = reverse_bit(i+504-8);
+        OFDM_FDDB[i] = OFDM_BUFF[j];
+    }
+}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 #define PI 3.1415926535897932384626433
 
@@ -81,8 +82,10 @@ class ofdm_modem {
 public:
     ofdm_modem();
     ~ofdm_modem();
-    void modulate(const sample_t* const, sample_t* const);
-    void demodulate(sample_t* const, sample_t* const);
+    sample_t* const fdd;    // x16, freq-domain data
+    sample_t* const tdd;    // x512, time-domain data
+    void modulate(void);
+    void demodulate(void);
 private:
     void* data;
 };
