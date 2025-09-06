@@ -361,9 +361,68 @@ int main() {
     modem.fdd[8+7] = (sample_t){-0.7071, -0.7071};
 
     modem.modulate();
+
+    // for (size_t i=0; i<512; i++) {
+    //     cout << modem.tdd[i].I << ' ' << modem.tdd[i].Q << endl;
+    // }
+    // return 0;
+
+    // matlab code to verify the above result
+    // clf;
+    // clc;
+    // clear;
+    // 
+    // fdd = zeros(512, 1);
+    // fdd(2) = 0+1j*-1;
+    // fdd(3) = 1+1j*0;
+    // fdd(4) = 0.7071+1j*0.7071;
+    // fdd(5) = -0.7071+1j*0.7071;
+    // fdd(6) = -1+1j*0;
+    // fdd(7) = 0+1j*1;
+    // fdd(8) = 0.7071+1j*-0.7071;
+    // fdd(9) = -0.7071+1j*-0.7071;
+    // fdd(505) = 0+1j*-1;
+    // fdd(506) = -1+1j*0;
+    // fdd(507) = 0.7071+1j*0.7071;
+    // fdd(508) = 0.7071+1j*-0.7071;
+    // fdd(509) = 1+1j*0;
+    // fdd(510) = 0+1j*1;
+    // fdd(511) = -0.7071+1j*0.7071;
+    // fdd(512) = -0.7071+1j*-0.7071;
+    // 
+    // tdd_matlab = ifft(fdd, 512)*32;
+    // 
+    // tdd=load('log');
+    // tdd = tdd(:,1)+1j*tdd(:,2);
+    // 
+    // subplot(211);
+    // hold on;
+    // plot(real(tdd_matlab), 'b.');
+    // plot(real(tdd), 'r');
+    // hold off;
+    // grid on;
+    // title('I');
+    // 
+    // subplot(212);
+    // hold on;
+    // plot(imag(tdd_matlab), 'b.');
+    // plot(imag(tdd), 'r');
+    // hold off;
+    // grid on;
+    // title('Q');
+
     modem.demodulate();
     for (size_t i=0; i<16; i++) {
-        cout << modem.fdd[i].I/32 << ' ' << modem.fdd[i].Q/32 << endl;
+        if (fabs(modem.fdd[i].I/32) < 1e-7)
+            cout << 0.0;
+        else
+            cout << modem.fdd[i].I/32;
+        cout << ' ';
+        if (fabs(modem.fdd[i].Q/32) < 1e-7)
+            cout << 0.0;
+        else
+            cout << modem.fdd[i].Q/32;
+        cout << endl;
     }
     return 0;
 }
