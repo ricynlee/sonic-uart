@@ -32,7 +32,7 @@ uint8_t rx_octet() {
     while (q.read()>=-TH);
     for (int i=0; i<3; i++)
         q.read();
-    for (int i=0; i<8; i++) {
+    for (int i=7; i>=0; i--) {
         q.read();
         sample = (q.read() + q.read()) / 2;
         // cout << sample << ' ' << 0 << endl;
@@ -46,7 +46,7 @@ uint8_t rx_octet() {
     if (sample >= 0) {
         // ERROR
     }
-    q.read();
+    // q.read();
     return c;
 }
 
