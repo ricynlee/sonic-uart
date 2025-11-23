@@ -27,25 +27,31 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
 
 uint8_t rx_octet() {
     uint8_t c = 0;
-    float sample;
+    float sample[2];
     while (q.read()<=TH);
     while (q.read()>=-TH);
-    for (int i=0; i<3; i++)
-        q.read();
+    for (int i=0; i<3; i++) {
+        cout << q.read() << endl;
+    }
     for (int i=7; i>=0; i--) {
-        q.read();
-        sample = (q.read() + q.read()) / 2;
-        // cout << sample << ' ' << 0 << endl;
-        if (sample >= 0) {
+        cout << q.read() << endl;
+        sample[0] = q.read();
+        sample[1] = q.read();
+        cout << sample[0] << endl;
+        cout << sample[1] << endl;
+        if ((sample[0]+sample[1])/2 >= 0) {
             c |= (1U << i);
         }
-        q.read();
+        cout << q.read() << endl;
     }
-    q.read();
-    sample = (q.read() + q.read()) / 2;
-    if (sample >= 0) {
-        // ERROR
-    }
+    cout << q.read() << endl;
+    cout << q.read() << endl;
+    // cout << q.read() << endl;
+    // q.read();
+    // sample = (q.read() + q.read()) / 2;
+    // if (sample >= 0) {
+    //     // ERROR
+    // }
     // q.read();
     return c;
 }

@@ -44,13 +44,15 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
         wearing = true;
         for (size_t i=0; i<TX_BUF_DEPTH; i++) {
             buffer[i].R = q.read();
-            buffer[i].L = 0;
+            buffer[i].L = buffer[i].R;
+            // buffer[i].L = 0;
         }
     } else /* !RLn */ {
         wearing = true;
         for (size_t i=0; i<TX_BUF_DEPTH; i++) {
-            buffer[i].R = 0;
+            // buffer[i].R = 0;
             buffer[i].L = q.read();
+            buffer[i].R = buffer[i].L;
         }
     }
 
@@ -67,7 +69,7 @@ void tx_octet(unsigned char c) {
         for (int j=0; j<4; j++) {
             sample = lpf.filter(constel);
             q.write(sample.I);
-            cout << sample.I << endl;
+            // cout << sample.I << endl;
         }
     }
 }
@@ -81,7 +83,7 @@ void tx_packet(unsigned len, unsigned char data[]) {
     for (int j=0; j<4; j++) {
         sample = lpf.filter(constel);
         q.write(sample.I);
-        cout << sample.I << endl;
+        // cout << sample.I << endl;
     }
 
     for (unsigned i=0; i<len; i++) {
