@@ -11,7 +11,7 @@ using namespace std;
 static fifo<float> q; // inter-thread data queue
 
 #define RX_BUF_DEPTH            1024
-#define TH                      0.25
+#define TH                      0.5
 
 int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */,  double /* timestamp */, RtAudioStreamStatus status, void* /* shared_data */) {
     if (status) cerr << "Overflow!" << endl;
@@ -35,11 +35,9 @@ uint8_t rx_octet() {
     for (int i=0; i<8; i++) {
         q.read();
         sample = (q.read() + q.read()) / 2;
+        // cout << sample << ' ' << 0 << endl;
         if (sample >= 0) {
-            c <<= 1;
-            c |= 1U;
-        } else if (sample < 0) {
-            c <<= 1;
+            c |= (1U << i);
         }
         q.read();
     }
@@ -56,7 +54,7 @@ void ui(void) {
     while (true) {
         cerr << "Listening for data..." << endl;
         while (1) {
-            cout << (char)rx_octet();
+            cout << "=" << (int)rx_octet() << endl;
         }
     }
 }

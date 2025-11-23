@@ -59,7 +59,9 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
 
 void tx_octet(unsigned char c) {
     sample_t constel, sample;
-    unsigned d = (1U<<8 | c) << 1;
+    unsigned d = 1U<<8;
+    d |= c;
+    d <<= 1;
     for (int i=0; i<10; i++) {
         constel.I = (d & 1U)*2;
         constel.I = 0.5*(constel.I - 1);
