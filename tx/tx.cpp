@@ -13,16 +13,12 @@ using namespace std;
                             // >ORDER
                             // cannot be too small (e.g., <256) in case of overflow/underflow
 
-static float COS[8]; // {0.5, -0.353553390593274, 0, 0.353553390593274, -0.5, 0.353553390593275, 0, -0.353553390593274}; // 18kHz
-static float SIN[8]; // {0, 0.353553390593274, -0.5, 0.353553390593274, 0, -0.353553390593273, 0.5, -0.353553390593274}; // 18kHz
-
 // fir lpf
 static const float LPF[LPF_LEN] = LPF_COEF;
 
 static fifo<float> q; // inter-thread data queue
 
 static fir_filter lpf;
-static char txdata[1<<13];
 
 int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, double /* timestamp */, RtAudioStreamStatus status, void* /* shared_data */) {
     if (status) {
@@ -61,83 +57,44 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
     return 0;
 }
 
-void tx_modulate(unsigned len, mod_t mod=MOD_BPSK) {
+void tx_octet(unsigned char c) {
     sample_t constel, sample;
-    sym_t    sym;
-
-    // preamble: chirp for signal existence check, timing and gain control reference
-    for (size_t i=0; i<PREAM_BODY; i++) {
-        constel.I = chirp(i);
-        constel.Q = 0;
-        sample = lpf.filter(constel);
-        q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
-        // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
-    }
-
-    // bubble: avoid preamble-carrier interference
-    constel.I = 0;
-    constel.Q = 0;
-    for (size_t i=0; i<BUBBLE_BODY; i++) {
-        sample = lpf.filter(constel);
-        q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
-        // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
-    }
-
-    // carrier: for freq sync
-    for (size_t i=0; i<CARRIER_BODY; i++) {
-        constel.I = 1;
-        constel.Q = 0;
-        sample = lpf.filter(constel);
-        q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
-        // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
-    }
-
-    // bubble: avoid carrier-payload interference
-    constel.I = 0;
-    constel.Q = 0;
-    for (size_t i=0; i<BUBBLE_BODY; i++) {
-        sample = lpf.filter(constel);
-        q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
-        // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
-    }
-
-    // header in bpsk: 3b modulation | 13b byte size
-    {
-        unsigned short header = (mod<<13) | len;
-        for (size_t j=0; j<16; j++) {
-            int bit = (header>>j) & 1; // lsb first
-            constel.I = (2*bit-1);
-            constel.Q = 0;
-            for (size_t i=0; i<SYMBOL_BODY; i++) {
-                sample = lpf.filter(constel);
-                q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
-                // cout << COS[i&7]*sample.I - SIN[i&7]*sample.Q << endl;
-            }
+    unsigned d = (1U<<8 | c) << 1;
+    for (int i=0; i<10; i++) {
+        constel.I = (d & 1U)*2;
+        constel.I = 0.5*(constel.I - 1);
+        for (int j=0; j<4; j++) {
+            sample = lpf.filter(constel);
+            q.write(sample.I);
+            cout << sample.I << endl;
         }
+        d >>= 1;
+    }
+}
+
+void tx_packet(unsigned len, unsigned char data[]) {
+    size_t n = 0;
+    sample_t constel, sample;
+
+    n += 4;
+    constel.I = 0.5;
+    for (int j=0; j<4; j++) {
+        sample = lpf.filter(constel);
+        q.write(sample.I);
+        cout << sample.I << endl;
     }
 
-    // frame body
-    switch (mod) {
-    default: /* MOD_BPSK */
-        for (size_t j=0; j<len; j++) {
-            for (size_t k=0; k<8; k++) {
-                sym.bpsk = (txdata[j]>>k) & 0b1;
-                constel.I = (2*sym.bpsk-1);
-                constel.Q = 0;
-                for (size_t i=0; i<SYMBOL_BODY; i++) {
-                    sample = lpf.filter(constel);
-                    q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
-                }
-            }
-        }
+    for (unsigned i=0; i<len; i++) {
+        n += 40;
+        n %= TX_BUF_DEPTH;
+        tx_octet(data[i]);
     }
 
     // pick up remainders in the filter & protective margin
     constel.I = 0;
-    constel.Q = 0;
-    for (size_t i=0; i<TX_BUF_DEPTH; i++) {
+    for (size_t i=0; i<TX_BUF_DEPTH *2-n; i++) {
         sample = lpf.filter(constel);
-        q.write(COS[i&7]*sample.I - SIN[i&7]*sample.Q);
+        q.write(sample.I);
     }
 }
 
@@ -145,18 +102,12 @@ void ui(void) {
     // init lpf
     lpf.init(LPF, LPF_LEN);
 
-    // init local oscillator lut
-    for (size_t i=0; i<(int)(sizeof(COS)/sizeof(COS[0])); i++) {
-        COS[i] = cos(2*PI*CARRIER_FRQ*i/SAMPLE_RATE)/2;
-        SIN[i] = sin(2*PI*CARRIER_FRQ*i/SAMPLE_RATE)/2;
-    }
+    unsigned char txdata[4096];
 
     while (true) {
         cerr << "> ";
-        cin.getline(txdata, sizeof(txdata));
+        cin.getline((char*)txdata, sizeof(txdata));
         if (cin.eof()) {
-            this_thread::sleep_for(chrono::milliseconds(200)); // avoid jamming of keyboard typing
-            tx_modulate(0);
             break;
         }
 
@@ -165,7 +116,7 @@ void ui(void) {
         }
 
         this_thread::sleep_for(chrono::milliseconds(200)); // avoid jamming of keyboard typing
-        tx_modulate(cin.gcount());
+        tx_packet(cin.gcount(), txdata);
     }
 
     while (q.size()) {

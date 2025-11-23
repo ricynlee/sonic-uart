@@ -7,134 +7,11 @@
 
 using namespace std;
 
-// type declarations
-class scale_rotate {
-private:
-    sample_t factor; // for constellation scaling and rotating
-public:
-    void init(const sample_t&);
-    void correct(sample_t&);
-};
-
-class local_oscillator {
-private:
-    double frq;
-    double phi;
-public:
-    local_oscillator();
-    sample_t mix(fifo<float>&);
-    sample_t mix(float);
-    double get_frq();
-    void set_frq(double);
-    void rst_frq(void);
-};
-
-class sliwin_peak_finder:protected sliwin {
-private:
-    bool _found;
-    float _peak;
-public:
-    sliwin_peak_finder(size_t);
-    bool slide(float);
-    float peak(void);
-};
-
 // global objects
-#define RX_BUF_DEPTH            1024
-#define TH_COEF                 0.5f
-#define HARD_TH                 0.1f
-
-#define PIx16 50.2654824574367
-
-// fir lpf
-static const float LPF[LPF_LEN] = LPF_COEF;
-
-// chirp preamble match filter coef
 static fifo<float> q; // inter-thread data queue
-static local_oscillator lo;
-static fir_filter lpf;
-static fir_filter mf;
-static biquad_filter nbf;
-static char rxdata[1<<13];
 
-// functions
-inline float amp(const sample_t& x) {
-    return sqrt(x.I*x.I+x.Q*x.Q);
-}
-
-void scale_rotate::init(const sample_t& x) {
-    float sra2 = x.I*x.I+x.Q*x.Q;
-    factor.I = x.I/sra2;
-    factor.Q = x.Q/sra2;
-}
-
-void scale_rotate::correct(sample_t& x) {
-    sample_t xi = x;
-    sample_t& xo = x;
-    xo.I = xi.I*factor.I + xi.Q*factor.Q;
-    xo.Q = xi.Q*factor.I - xi.I*factor.Q;
-}
-
-local_oscillator::local_oscillator() {
-    phi = 0;
-    rst_frq();
-}
-
-sample_t local_oscillator::mix(fifo<float>& q) {
-    float x = q.read();
-    return mix(x);
-}
-
-sample_t local_oscillator::mix(float x) {
-    sample_t mixed;
-    mixed = (sample_t){(float)cos(phi)*x, (float)-sin(phi)*x};
-    phi = phi + PIx16*frq/(SAMPLE_RATE*8);
-    if (phi > PIx16) {
-        phi -= PIx16;
-    }
-    return mixed;
-}
-
-double local_oscillator::get_frq() {
-    return frq;
-}
-
-void local_oscillator::set_frq(double offset) {
-    frq += offset;
-}
-
-void local_oscillator::rst_frq(void) {
-    frq = CARRIER_FRQ;
-}
-
-sliwin_peak_finder::sliwin_peak_finder(size_t n):sliwin(n) {
-    _found = false;
-}
-
-bool sliwin_peak_finder::slide(float v) {
-    _found = false;
-    sliwin::slide(v);
-    if (size()>=3) {
-        v = operator[](1); // hope that [1] is the peak
-        if ((v>operator[](0) && v>=operator[](2)) || (v>=operator[](0) && v>operator[](2))) { // neighborhood peak found
-            for (size_t i=3; i<size(); i++) {
-                if (operator[](i) > v) {
-                    return false;
-                }
-            }
-            _peak = v;
-            _found = true; // regional peak found
-        }
-    }
-    return _found;
-}
-
-float sliwin_peak_finder::peak(void) {
-    if (_found)
-        return _peak;
-    else
-        return 0.0f;
-}
+#define RX_BUF_DEPTH            1024
+#define TH                      0.25
 
 int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */,  double /* timestamp */, RtAudioStreamStatus status, void* /* shared_data */) {
     if (status) cerr << "Overflow!" << endl;
@@ -148,247 +25,40 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
     return 0;
 }
 
-size_t rx_demodulate(void) {
-    sample_t bb; // base-band sample
-
-    float pream_amp_ref; // amplitude reference
-    { // preamble
-        sliwin_peak_finder win0(32); // regional peak finder
-        sliwin_sum win1(32);
-
-        for (unsigned short i=0; ; i++) {
-            bb = lpf.filter(lo.mix(q));
-
-            // cout << bb.I << ' ' << bb.Q << endl;
-
-            if (i % 8 == 0) { // 1/8 decimation
-                bb = mf.filter(bb); // matching filtering
-
-                if (win0.slide(amp(bb))) { // regional peak found
-                    float peak = win0.peak();
-                    float th = win1.sum()*TH_COEF; // prior sum is used
-                    if (win1.filled() && peak>HARD_TH && peak>th) { // decisioning
-                        pream_amp_ref = peak;
-                        break;
-                    }
-                    win1.slide(peak);
-                }
-            }
+uint8_t rx_octet() {
+    uint8_t c = 0;
+    float sample;
+    while (q.read()<=TH);
+    while (q.read()>=-TH);
+    for (int i=0; i<3; i++)
+        q.read();
+    for (int i=0; i<8; i++) {
+        q.read();
+        sample = (q.read() + q.read()) / 2;
+        if (sample >= 0) {
+            c <<= 1;
+            c |= 1U;
+        } else if (sample < 0) {
+            c <<= 1;
         }
+        q.read();
     }
-
-    float timing_scale_coef = 1;
-    { // carrier sync
-        for (unsigned short i=0; i<BUBBLE_BODY-8+1024; i++) { // skip the bubble and coarsely fill nbf (approx. 1024-point delay), match filter has 8-point delay
-            bb = lpf.filter(lo.mix(q));
-
-            // cout << bb.I << ' ' << bb.Q << endl;
-
-            if (i % 4 == 0) { // decimation
-                nbf.filter(bb); // fill in the nbf biquad iir filter
-            }
-        }
-
-        const double beta = 0.001480778208934; // pll proportional coef
-        const double alpha = 0.002193245422464; // pll integral coef
-        double frq = 0.0;
-        double phi = 0.0;
-        double delta;
-        sample_t vco = {1.0f, 0.0f};
-
-        sliwin_stdd phi_win(32); // phase lock checker
-        sliwin_stdd frq_win(32); // frq stable checker
-
-        const int CC_UB = 96; // confidence coef, upper bound
-        const int CC_LB = 32; // confidence coef, lower bound
-        int cc = CC_UB; // confidence coef
-        int sc = 0; // (frq) stable count
-        float frq_offset;
-        float confidence; // snr related
-
-        for (size_t i=0; i<CARRIER_BODY-3072; i++) {
-            bb = lpf.filter(lo.mix(q));
-
-            // cout << bb.I << ' ' << bb.Q << endl;
-
-            if (i % 4 == 0) { // 1/4 decimation
-                bb = nbf.filter(bb);
-                delta = atan2((double)(bb.Q*vco.I-bb.I*vco.Q), (double)(bb.I*vco.I+bb.Q*vco.Q)); // atan2(imag(bb/vco), real(bb/vco)), |vco|===1
-                if (i % 256==0) { // 1/256 decimation
-                    phi_win.slide(delta);
-                    if (phi_win.filled()) {
-                        if (phi_win.stdd()<PI/9) {
-                            cc = cc - 1;
-                            if (cc<CC_LB) cc = CC_LB;
-                        } else {
-                            cc = cc + 1;
-                            if (cc>CC_UB) cc = CC_UB;
-                        }
-                    }
-                }
-
-                if (i % 256==128) { // 1/256 decimation
-                    frq_win.slide(frq);
-                    if (frq_win.filled()) {
-                        if (frq_win.stdd()<0.025) {
-                            sc = sc + 1;
-                            frq_offset = frq_win.mean();
-                            confidence = 1.0f - fast_exp((float)-sc/cc);
-                        }
-                    }
-                }
-
-                // pll
-                frq += beta*delta;
-                phi += alpha*delta + PIx16*frq/8.0/(SAMPLE_RATE/4); // 4 stands for decimation rate
-                if (phi>PIx16) phi-=PIx16;
-                if (phi<-PIx16) phi+=PIx16;
-                vco.I = cos(phi);
-                vco.Q = sin(phi);
-            }
-        }
-        lo.set_frq(frq_offset);
-        timing_scale_coef =  1.0f - frq_offset/CARRIER_FRQ;
-        nbf.clear();
+    q.read();
+    sample = (q.read() + q.read()) / 2;
+    if (sample >= 0) {
+        // ERROR
     }
-
-    scale_rotate sr;
-    float fraction; // fractional part of sampling length
-    { // amp/phi correction
-        fraction = (BUBBLE_BODY+PREAM_BODY)*timing_scale_coef + 0.5 - (BUBBLE_BODY+PREAM_BODY-2048); // +0.5 for rounding
-        size_t n = fraction;
-        fraction -= n;
-
-        sample_t ref = {0.0f, 0.0f};
-        for (size_t i=0; i<n; i++) {
-            bb = lpf.filter(lo.mix(q));
-            ref.I += bb.I;
-            ref.Q += bb.Q;
-        }
-
-        float carrier_amp_ref = amp(ref);
-        if (carrier_amp_ref>pream_amp_ref*4 || carrier_amp_ref<pream_amp_ref/4) { // carrier_amp_ref too large/small, something is wrong
-            cerr << "Fluctuating signal amplitude. Data reception aborted." << endl;
-            return 0;
-        }
-
-        ref.I /= (2048/SYMBOL_BODY);
-        ref.Q /= (2048/SYMBOL_BODY);
-        sr.init(ref);
-    }
-
-    fraction += BUBBLE_BODY*timing_scale_coef;
-    size_t n = fraction;
-    fraction -= n;
-    for (unsigned short i=0; i<n; i++) { // skip the bubble
-        lpf.filter(lo.mix(q));
-    }
-
-    // header
-    mod_t mod;
-    unsigned short len;
-    {
-        unsigned short header = 0;
-        for (size_t j=0; j<16; j++) { // header, bpsk
-            fraction += SYMBOL_BODY*timing_scale_coef;
-            size_t n = fraction;
-            fraction -= n;
-
-            sample_t constel = {0.0f, 0.0f};
-            for (size_t i=0; i<n; i++) {
-                bb = lpf.filter(lo.mix(q));
-                constel.I += bb.I;
-                constel.Q += bb.Q;
-            }
-
-            sym_t sym;
-            sr.correct(constel);
-            sym.bpsk = (constel.I>0);
-            header |= (sym.bpsk << j);
-        }
-
-        len = header & 0x1fff; // lower 13 bits
-        mod = (mod_t)(header >> 13); // higher 3 bits
-    }
-
-    cerr << "Len = " << len << ", ";
-    const char* mod_scheme[] = {
-        "BPSK", "QPSK", "16QAM", "UNKNOWN",
-        "OFDM BPSK", "OFDM QPSK", "OFDM 16QAM", "UNKNOWN"
-    };
-    cerr << "Modulation = " << mod_scheme[mod] << endl;
-
-    // data reception
-    if (mod==MOD_BPSK) {
-        for (size_t k=0; k<len; k++) {
-            rxdata[k] = 0;
-            for (size_t j=0; j<8; j++) {
-                fraction += SYMBOL_BODY*timing_scale_coef;
-                size_t n = fraction;
-                fraction -= n;
-
-                sample_t constel = {0.0f, 0.0f};
-                for (size_t i=0; i<n; i++) {
-                    bb = lpf.filter(lo.mix(q));
-                    constel.I += bb.I;
-                    constel.Q += bb.Q;
-                }
-
-                sym_t sym;
-                sr.correct(constel);
-
-                cout << constel.I << ' ' << constel.Q << endl;
-
-                sym.bpsk = (constel.I>0);
-                rxdata[k] |= (sym.bpsk << j);
-            }
-        }
-    }
-    return len;
-}
-
-void init_filters() {
-    // initialize filters
-    lpf.init(LPF, LPF_LEN);
-
-    const size_t MF_LEN = PREAM_BODY/8; // 1/8 decimated
-    float* MF_COEF = (float*)malloc(sizeof(float)*MF_LEN);
-    for (size_t i=0; i<MF_LEN; i++) {
-        MF_COEF[i] = chirp(PREAM_BODY-i*8)*(0.54f-0.46f*cos(2*PI*i/MF_LEN)); // hamming windowed
-    }
-    mf.init(MF_COEF, MF_LEN);
-    free(MF_COEF);
-
-    const float IIR[6] = { // chebyshev type ii, 2nd order, fs 12k, fstop 40, astop 20db
-        0.0993952155113220, -0.198703244328499, 0.0993952155113220, // B, numerator
-        1, -1.98742473125458, 0.987511932849884, // A, denominator
-    };
-    nbf.init(IIR);
+    q.read();
+    return c;
 }
 
 void ui(void) {
-    init_filters();
-
-    // protective margin, filling LPF
-    for (int i=0; i<(int)LPF_LEN; i++) {
-        lpf.filter(lo.mix(q));
-    }
-
     while (true) {
         cerr << "Listening for data..." << endl;
-        unsigned len = rx_demodulate();
-
-        if (len==0) {
-            break;
-        } else {
-            for (size_t j=0; j<len; j++) {
-                cerr << rxdata[j];
-            }
-            cerr << endl;
+        while (1) {
+            cout << (char)rx_octet();
         }
     }
-
-    cerr << "Goodbye" << endl;
 }
 
 int main()
