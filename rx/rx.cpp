@@ -9,9 +9,8 @@ using namespace std;
 
 // global objects
 static fifo<float> q; // inter-thread data queue
-
 #define RX_BUF_DEPTH            1024
-#define TH                      0.5
+#define TH                      0.15
 
 int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */,  double /* timestamp */, RtAudioStreamStatus status, void* /* shared_data */) {
     if (status) cerr << "Overflow!" << endl;
@@ -27,41 +26,44 @@ int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */, 
 
 uint8_t rx_octet() {
     uint8_t c = 0;
-    float sample[2];
-    while (q.read()<=TH);
-    while (q.read()>=-TH);
+    float sample;
+    static float th = TH;
+
+    do {
+        sample = q.read();
+        if (sample > 2*th) {
+            th = sample/2;
+        }
+    } while(sample <= th);
+
+    do {
+        sample = q.read();
+        if (sample > 2*th) {
+            th = sample/2;
+        }
+    } while(sample > -th);
+
     for (int i=0; i<3; i++) {
-        cout << q.read() << endl;
+        q.read();
     }
+
     for (int i=7; i>=0; i--) {
-        cout << q.read() << endl;
-        sample[0] = q.read();
-        sample[1] = q.read();
-        cout << sample[0] << endl;
-        cout << sample[1] << endl;
-        if ((sample[0]+sample[1])/2 >= 0) {
+        q.read();
+        sample = (q.read() + q.read())/2;
+        if (sample >= 0) {
             c |= (1U << i);
         }
-        cout << q.read() << endl;
+        q.read();
     }
-    cout << q.read() << endl;
-    cout << q.read() << endl;
-    // cout << q.read() << endl;
-    // q.read();
-    // sample = (q.read() + q.read()) / 2;
-    // if (sample >= 0) {
-    //     // ERROR
-    // }
-    // q.read();
+    q.read();
+    q.read();
     return c;
 }
 
 void ui(void) {
+    cerr << "Listening for data..." << endl;    
     while (true) {
-        cerr << "Listening for data..." << endl;
-        while (1) {
-            cout << "=" << (int)rx_octet() << endl;
-        }
+        cout << "=" << (int)rx_octet() << endl;
     }
 }
 

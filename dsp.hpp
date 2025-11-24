@@ -33,28 +33,6 @@ typedef struct {
     };
 } sample_t;
 
-typedef enum {
-    MOD_BPSK = 0, // 1 bit/sym
-    MOD_QPSK = 1, // 2 bit/sym
-    MOD_QAM16 = 2, // 4 bit/sym
-    MOD_OFDM_BPSK = 4, // 16 bit/sym
-    MOD_OFDM_QPSK = 5, // 32 bit/sym
-    MOD_OFDM_QAM16 = 6, // 64 bit/sym
-} mod_t;
-
-typedef int8_t int1_t;
-typedef int8_t int2_t;
-typedef int8_t int4_t;
-
-typedef union {
-    int1_t bpsk;
-    int2_t qpsk;
-    int4_t qam16;
-    int16_t ofdm_bpsk;
-    int32_t ofdm_qpsk;
-    int64_t ofdm_qam16;
-} sym_t;
-
 // declarations
 class fir_filter {
 public:
@@ -67,28 +45,4 @@ private:
     void* data;
 };
 
-class biquad_filter {
-public:
-    biquad_filter();
-    ~biquad_filter();
-    void init(const float*);
-    void clear();
-    sample_t filter(const sample_t&);
-private:
-    void* data;
-};
-
-class ofdm_modem {
-public:
-    ofdm_modem();
-    ~ofdm_modem();
-    sample_t* const fdd;    // x16, freq-domain data
-    sample_t* const tdd;    // x512, time-domain data
-    void modulate(void);
-    void demodulate(void);
-private:
-    void* data;
-};
-
-float chirp(size_t);
 float fast_exp(float);
