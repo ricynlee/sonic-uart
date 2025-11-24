@@ -10,7 +10,7 @@ using namespace std;
 // global objects
 static fifo<float> q; // inter-thread data queue
 #define RX_BUF_DEPTH            1024
-#define TH                      0.15
+#define TH                      0.1
 
 int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */,  double /* timestamp */, RtAudioStreamStatus status, void* /* shared_data */) {
     if (status) cerr << "Overflow!" << endl;
@@ -63,7 +63,11 @@ uint8_t rx_octet() {
 void ui(void) {
     cerr << "Listening for data..." << endl;    
     while (true) {
-        cout << "=" << (int)rx_octet() << endl;
+        char c = (char)rx_octet();
+        if (c=='\0' || c=='\n')
+            cout << endl;
+        else
+            cout << c;
     }
 }
 
