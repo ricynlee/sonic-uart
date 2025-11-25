@@ -10,7 +10,7 @@ using namespace std;
 // global objects
 static fifo<float> q; // inter-thread data queue
 #define RX_BUF_DEPTH            1024
-#define TH                      0.1
+#define TH                      0.11f
 
 int rx_callback( void* /* out_buf */, void* in_buf, unsigned /* buf_samples */,  double /* timestamp */, RtAudioStreamStatus status, void* /* shared_data */) {
     if (status) cerr << "Overflow!" << endl;
@@ -29,17 +29,29 @@ uint8_t rx_octet() {
     float sample;
     static float th = TH;
 
+    // stop bit
+    unsigned timeout = 0;
     do {
         sample = q.read();
         if (sample > 2*th) {
             th = sample/2;
+            timeout = 0;
+            cout << "TH" << th << endl;
+        } else {
+            if (timeout==0x7fffu) {
+                th = (th-TH)*0.9f + TH;
+                cout << "TH" << th << endl;
+            }
+            timeout = (timeout+1) & 0x7fffu;
         }
     } while(sample <= th);
 
+    // start bit
     do {
         sample = q.read();
         if (sample > 2*th) {
             th = sample/2;
+            cout << "TH" << th << endl;
         }
     } while(sample > -th);
 
@@ -47,6 +59,7 @@ uint8_t rx_octet() {
         q.read();
     }
 
+    // data bits
     for (int i=7; i>=0; i--) {
         q.read();
         sample = (q.read() + q.read())/2;
@@ -55,8 +68,10 @@ uint8_t rx_octet() {
         }
         q.read();
     }
+
+    // skip possible ramping up of stop bits
     q.read();
-    q.read();
+
     return c;
 }
 

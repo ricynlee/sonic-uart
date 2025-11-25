@@ -62,7 +62,7 @@ int tx_callback( void* out_buf, void* /* in_buf */, unsigned /* buf_samples */, 
 void tx_octet(unsigned char c) {
     sample_t constel, sample;
     unsigned d = c;
-    d = (d<<1) | 1U;
+    d |= 1u<<9u;
     for (int i=9; i>=0; i--) {
         constel.I = ((d & (1U<<i))>>i)*2;
         constel.I = 0.5*(constel.I - 1);
@@ -77,14 +77,6 @@ void tx_octet(unsigned char c) {
 void tx_packet(unsigned len, unsigned char data[]) {
     size_t n = 0;
     sample_t constel, sample;
-
-    n += 4;
-    constel.I = 0.5;
-    for (int j=0; j<4; j++) {
-        sample = lpf.filter(constel);
-        q.write(sample.I);
-        // cout << sample.I << endl;
-    }
 
     for (unsigned i=0; i<len; i++) {
         n += 40;
