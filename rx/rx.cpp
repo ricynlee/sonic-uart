@@ -36,11 +36,9 @@ uint8_t rx_octet() {
         if (sample > 2*th) {
             th = sample/2;
             timeout = 0;
-            cout << "TH" << th << endl;
         } else {
             if (timeout==0x7fffu) {
                 th = (th-TH)*0.9f + TH;
-                cout << "TH" << th << endl;
             }
             timeout = (timeout+1) & 0x7fffu;
         }
@@ -51,7 +49,6 @@ uint8_t rx_octet() {
         sample = q.read();
         if (sample > 2*th) {
             th = sample/2;
-            cout << "TH" << th << endl;
         }
     } while(sample > -th);
 
