@@ -73,13 +73,8 @@ uint8_t rx_octet() {
 }
 
 void ui(void) {
-    cerr << "Listening for data..." << endl;    
     while (true) {
-        char c = (char)rx_octet();
-        if (c=='\0' || c=='\n')
-            cout << endl;
-        else
-            cout << c;
+        cout << (char)rx_octet();
     }
 }
 

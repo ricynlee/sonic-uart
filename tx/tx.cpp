@@ -96,21 +96,23 @@ void ui(void) {
     // init lpf
     lpf.init(LPF, LPF_LEN);
 
-    unsigned char txdata[4096];
+    unsigned char txdata[128];
 
     while (true) {
-        cerr << "> ";
-        cin.getline((char*)txdata, sizeof(txdata));
+        unsigned char len;
+        cin.get(len);
         if (cin.eof()) {
             break;
         }
-
-        if (cin.fail()) { // too many chars in buffer
-            cin.clear(); // leave it to next read
+        len &= 0x7f;
+        if (len==0) {
+            len = 128;
         }
 
+        cin.read(txdata, len);
+
         this_thread::sleep_for(chrono::milliseconds(200)); // avoid jamming of keyboard typing
-        tx_packet(cin.gcount(), txdata);
+        tx_packet(len, txdata);
     }
 
     while (q.size()) {
